@@ -1,4 +1,4 @@
 
 
-from .core import go, do
+from .executor import go, do
 

@@ -10,16 +10,23 @@ from pygoroutine import go, do
 
 
 
-async def _work_1(idx: int) -> int:
+async def _work_1(idx: int):
     print(f'start {idx}')
-    await asyncio.sleep(1)
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+    go(_work_2(future))
+    await future
     print(f'end {idx}')
-    return 3
+
+
+async def _work_2(future: Future):
+    await asyncio.sleep(2)
+    future.cancel()
 
 
 
 def test_goroutine_basic():
-    x: Future[int] = go(_work_1(1))
-    print(x.result())
-        
+    f = go(_work_1(3))
+    f.result()
+
 
