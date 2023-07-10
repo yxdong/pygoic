@@ -1,2 +1,4 @@
-name = 'pygoroutine'
-desc = 'hello world'
+
+
+from .core import go, do
+
