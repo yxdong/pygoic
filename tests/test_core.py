@@ -7,6 +7,7 @@ from concurrent.futures import Future
 import time
 from typing import List
 from pygoroutine import go, do
+from pygoroutine.channel import Chan
 from pygoroutine.executor import GoroutineExecutor, delegate
 
 
@@ -16,10 +17,11 @@ g = GoroutineExecutor()
 
 async def _work_1(idx: int):
     print(f'start {idx}')
-    loop = asyncio.get_running_loop()
-    future = loop.create_future()
+    #loop = asyncio.get_running_loop()
+    #future = loop.create_future()
+    future = asyncio.Future()
     go(_work_2(future))
-    await future
+    print(await future)
     print(f'end {idx}')
 
 
@@ -97,6 +99,25 @@ async def work_4():
 
     return 'world'
 
+
+async def ch_work1(ch: Chan[str]):
+    await asyncio.sleep(1)
+    x, ok = await ch.recv()
+    print(f'recv {x}')
+
+
+async def ch_work2(ch: Chan[str]):
+    await ch.send('hello')
+    print('send done')
+
+async def chan_test_main():
+    ch = Chan[str]()
+    f1 = go(ch_work1(ch))
+    f2 = go(ch_work2(ch))
+    await f1
+    await f2
+
+
 if __name__ == '__main__':
     '''
     ff = []
@@ -108,7 +129,8 @@ if __name__ == '__main__':
         f.result()
         print(f.result())
     '''
-    print(do(work_4()))
+    do(chan_test_main())
+    
 
     
     

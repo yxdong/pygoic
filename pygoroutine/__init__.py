@@ -1,4 +1,4 @@
 
 
-from .executor import go, do, delegate, CoFuture
+from .executor import go, do, delegate
 
