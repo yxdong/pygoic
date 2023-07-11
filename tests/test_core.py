@@ -7,7 +7,7 @@ from concurrent.futures import Future
 import time
 from typing import List
 from pygoroutine import go, do
-from pygoroutine.executor import GoroutineExecutor
+from pygoroutine.executor import GoroutineExecutor, delegate
 
 
 g = GoroutineExecutor()
@@ -93,10 +93,8 @@ async def work_4():
         ff.append(f)
         
     #await asyncio.sleep(3)
-    for f in ff:
-        await f
-        pass
-    
+    await delegate(time.sleep, 3)
+
     return 'world'
 
 if __name__ == '__main__':
@@ -111,6 +109,6 @@ if __name__ == '__main__':
         print(f.result())
     '''
     print(do(work_4()))
-    time.sleep(3)
+
     
     
