@@ -87,11 +87,11 @@ class Chan(Generic[T]):
         self._putters = deque[Tuple[Future[None], T]]()
 
         self._closed = False
-        self._lock = asyncio.Lock()
+        self._lock = threading.Lock()
 
 
-    async def close(self):
-        async with self._lock:
+    def close(self):
+        with self._lock:
             self._closed = True
             while self._putters:
                 futput, item = self._putters.popleft()
@@ -107,7 +107,7 @@ class Chan(Generic[T]):
 
 
     async def send(self, item: T):
-        async with self._lock:
+        with self._lock:
             if self._closed:
                 raise ChanClosedError('chan closed')
             
@@ -119,7 +119,7 @@ class Chan(Generic[T]):
 
 
     async def recv(self) -> Tuple[Optional[T], bool]:
-        async with self._lock:
+        with self._lock:
             if self._closed:
                 if self._buff:
                     item = self._buff.popleft()
@@ -165,7 +165,7 @@ class Chan(Generic[T]):
     
 
     async def _hook_getter(self, getter: _ChanGetter[T]):
-        async with self._lock:
+        with self._lock:
             if self._closed:
                 if self._buff:
                     item = self._buff[0]
@@ -189,3 +189,12 @@ async def select(*chans: Chan[Any]) -> Tuple[int, Any, bool]:
             return await fut
     return await fut
 
+
+class _NilChan(Chan[T]):
+    async def send(self, item: T):
+        fut = asyncio.Future()
+        await fut
+
+    async def recv(self) -> Tuple[Optional[T], bool]:
+        fut = asyncio.Future[Tuple[Optional[T], bool]]()
+        return await fut
