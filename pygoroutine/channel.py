@@ -198,3 +198,7 @@ class _NilChan(Chan[T]):
     async def recv(self) -> Tuple[Optional[T], bool]:
         fut = asyncio.Future[Tuple[Optional[T], bool]]()
         return await fut
+
+    async def _hook_getter(self, getter: _ChanGetter[T]):
+        pass
+    
