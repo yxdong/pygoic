@@ -1,8 +1,10 @@
 
 
+from abc import ABC, abstractmethod
 import asyncio
 from asyncio import Future
 from collections import deque
+import threading
 from typing import Any, Generic, Optional, Tuple, TypeVar
 
 
@@ -13,12 +15,75 @@ class ChanClosedError(Exception):
     pass
 
 
+class _ChanGetter(ABC, Generic[T]):
+    @abstractmethod
+    def set(self, item: T) -> bool:
+        pass
+    
+    @abstractmethod
+    def close(self) -> bool:
+        pass
+
+
+class _SingleChanGetter(_ChanGetter[T]):
+    def __init__(
+        self,
+        future: asyncio.Future[Tuple[Optional[T], bool]],
+    ):
+        self._future = future
+    
+    def set(self, item: T) -> bool:
+        self._future.set_result((item, True))
+        return True
+
+    def close(self) -> bool:
+        self._future.set_result((None, False))
+        return True
+    
+
+class _MultiChanGetter(_ChanGetter[Any]):
+    def __init__(
+        self, 
+        seq: int, 
+        future: asyncio.Future[Tuple[int, Any, bool]],
+        lock: threading.Lock,
+    ):
+        self._seq = seq
+        self._future = future
+        self._lock = lock
+        
+        
+    def _set_result(self, item: Any, ok: bool) -> bool:
+        if self._future.done():
+            return False
+        locked = self._lock.acquire(blocking=False)
+        if locked:
+            try:
+                if self._future.done():
+                    return False
+                self._future.set_result((self._seq, item, ok))
+                return True
+
+            finally:
+                self._lock.release()
+        else:
+            return False
+        
+        
+    def set(self, item: Any) -> bool:
+        return self._set_result(item, True)
+    
+    
+    def close(self) -> bool:
+        return self._set_result(None, False)
+
+
 class Chan(Generic[T]):
     def __init__(self, buffsize: int = 0):
         assert buffsize >= 0
         self._buffsize = buffsize
         self._buff = deque[T]()
-        self._getters = deque[Future[T]]()
+        self._getters = deque[_ChanGetter[T]]()
         self._putters = deque[Tuple[Future, T]]()
 
         self._closed = False
@@ -29,15 +94,16 @@ class Chan(Generic[T]):
         async with self._lock:
             self._closed = True
             while self._putters:
-                fput, item = self._putters.popleft()
-                fput.set_exception(ChanClosedError('chan closed'))
+                futput, item = self._putters.popleft()
+                futput.set_exception(ChanClosedError('chan closed'))
             while self._getters:
-                fget = self._getters.popleft()
+                getter = self._getters.popleft()
                 if self._buff:
-                    item = self._buff.popleft()
-                    fget.set_result(item)
+                    item = self._buff[0]
+                    if getter.set(item):
+                        self._buff.popleft()
                 else:
-                    fget.set_exception(ChanClosedError('chan closed'))
+                    getter.close()
 
 
     async def send(self, item: T):
@@ -60,46 +126,66 @@ class Chan(Generic[T]):
                     return item, True
                 else:
                     return None, False
-                
-            fut = asyncio.Future[T]()
-            self._getters.append(fut)
+            
+            fut = asyncio.Future[Tuple[Optional[T], bool]]()
+            getter = _SingleChanGetter[T](fut)
+            self._getters.append(getter)
             self._flush()
             
-        try:
-            item = await fut
-            return item, True
-        except ChanClosedError:
-            return None, False
-            
+        return await fut
+
 
     def _flush(self):
         while True:
             if self._getters:
                 if self._buff:
-                    fget = self._getters.popleft()
-                    item = self._buff.popleft()
-                    fget.set_result(item)
+                    getter = self._getters.popleft()
+                    item = self._buff[0]
+                    if getter.set(item):
+                        self._buff.popleft()
 
                 elif self._putters:
-                    fget = self._getters.popleft()
-                    fput, item = self._putters.popleft()
-                    fget.set_result(item)
-                    fput.set_result(None)
+                    getter = self._getters.popleft()
+                    futput, item = self._putters[0]
+                    if getter.set(item):
+                        self._putters.popleft()
+                        futput.set_result(None)
                 else:
                     break
             
             elif self._putters:
                 if len(self._buff) < self._buffsize:
-                    fput, item = self._putters.popleft()
+                    futput, item = self._putters.popleft()
                     self._buff.append(item)
-                    fput.set_result(None)
+                    futput.set_result(None)
                 else:
                     break
             else:
                 break
-
-
     
 
+    async def _hook_getter(self, getter: _ChanGetter[T]):
+        async with self._lock:
+            if self._closed:
+                if self._buff:
+                    item = self._buff[0]
+                    if getter.set(item):
+                        self._buff.popleft()
+                else:
+                    getter.close()
+            else:
+                self._getters.append(getter)
+                self._flush()
+        
+
 async def select(*chans: Chan[Any]) -> Tuple[int, Any, bool]: 
-    pass
+    assert len(chans) > 0
+    fut = asyncio.Future[Tuple[int, Any, bool]]()
+    lock = threading.Lock()
+    for i, ch in enumerate(chans):
+        getter = _MultiChanGetter(i, fut, lock)
+        await ch._hook_getter(getter)
+        if fut.done():
+            return await fut
+    return await fut
+
