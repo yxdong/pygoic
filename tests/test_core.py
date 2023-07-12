@@ -6,7 +6,7 @@ from collections import deque
 from concurrent.futures import Future
 import time
 from typing import List
-from pygoroutine import go, do
+from pygoroutine import go, do, select
 from pygoroutine.channel import Chan
 from pygoroutine.executor import GoroutineExecutor, delegate
 
@@ -104,6 +104,7 @@ async def ch_work1(ch: Chan[str]):
     await asyncio.sleep(1)
     x, ok = await ch.recv()
     print(f'recv {x}')
+    return f'recv {x}'
 
 
 async def ch_work2(ch: Chan[str]):
@@ -111,11 +112,37 @@ async def ch_work2(ch: Chan[str]):
     print('send done')
 
 async def chan_test_main():
-    ch = Chan[str]()
-    f1 = go(ch_work1(ch))
-    f2 = go(ch_work2(ch))
-    await f1
-    await f2
+    ch1 = Chan[str]()
+    ch2 = Chan[str]()
+    
+    async def w1():
+        await asyncio.sleep(0.2)
+        await ch1.send('w1')
+        
+    async def w2():
+        await asyncio.sleep(0.1)
+        await ch2.send('w2')
+    
+    async def w3():
+        await asyncio.sleep(0.3)
+        await ch1.close()
+        
+    async def w4():
+        await asyncio.sleep(0.3)
+        await ch2.close()        
+    
+    go(w1())
+    go(w2())
+    go(w3())
+    go(w4())
+    
+    print(await select(ch1, ch2))
+    print(await select(ch1, ch2))
+    print(await select(ch1, ch2))
+
+    
+    print(await ch1.recv())
+    
 
 
 if __name__ == '__main__':
@@ -131,6 +158,8 @@ if __name__ == '__main__':
     '''
     do(chan_test_main())
     
+
+
 
     
     

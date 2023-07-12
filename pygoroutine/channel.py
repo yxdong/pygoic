@@ -84,7 +84,7 @@ class Chan(Generic[T]):
         self._buffsize = buffsize
         self._buff = deque[T]()
         self._getters = deque[_ChanGetter[T]]()
-        self._putters = deque[Tuple[Future, T]]()
+        self._putters = deque[Tuple[Future[None], T]]()
 
         self._closed = False
         self._lock = asyncio.Lock()
@@ -111,7 +111,7 @@ class Chan(Generic[T]):
             if self._closed:
                 raise ChanClosedError('chan closed')
             
-            fut = asyncio.Future()
+            fut = asyncio.Future[None]()
             self._putters.append((fut, item))
             self._flush()
             
