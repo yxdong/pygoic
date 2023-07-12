@@ -124,8 +124,9 @@ class GoroutineExecutor:
             raise RuntimeError(f"Not allow to call `do` inside a event loop.")
         
         self._init_worker()
-        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
-        return future.result()
+        future = asyncio.ensure_future(coro, loop=self._loop)
+        cofuture = CoFuture(future, self._loop)
+        return cofuture.result()
 
 
     async def delegate(self, func: Callable[..., T], *args: Any) -> T:

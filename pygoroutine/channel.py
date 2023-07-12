@@ -44,19 +44,27 @@ class Chan(Generic[T]):
         async with self._lock:
             if self._closed:
                 raise ChanClosedError('chan closed')
+            
             fut = asyncio.Future()
             self._putters.append((fut, item))
             self._flush()
+            
         await fut
 
 
     async def recv(self) -> Tuple[Optional[T], bool]:
         async with self._lock:
             if self._closed:
-                return None, False
+                if self._buff:
+                    item = self._buff.popleft()
+                    return item, True
+                else:
+                    return None, False
+                
             fut = asyncio.Future[T]()
             self._getters.append(fut)
             self._flush()
+            
         try:
             item = await fut
             return item, True
