@@ -135,7 +135,19 @@ class Chan(Generic[T]):
         return await fut
 
 
-    def try_recv(self) -> Tuple[bool, Optional[T], bool]:
+    def send_nowait(self, item: T) -> bool:
+        with self._lock:
+            if self._closed:
+                raise ChanClosedError('chan closed')
+            
+            if len(self._buff) < self._buffsize:
+                self._buff.append(item)
+                return True
+            else:
+                return False
+
+
+    def recv_nowait(self) -> Tuple[bool, Optional[T], bool]:
         ''' Return: (success, item, ok)
         '''
         with self._lock:
@@ -216,7 +228,10 @@ class _NilChan(Chan[T]):
         fut = asyncio.Future[Tuple[Optional[T], bool]]()
         return await fut
 
-    def try_recv(self) -> Tuple[bool, Optional[T], bool]:
+    def send_nowait(self, item: T) -> bool:
+        return False
+
+    def recv_nowait(self) -> Tuple[bool, Optional[T], bool]:
         return False, None, False
 
     def _hook_getter(self, getter: _ChanGetter[T]):
@@ -229,7 +244,7 @@ nilchan = _NilChan()
 async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bool]:
     if default:
         for i, ch in enumerate(chans):
-            success, item, ok = ch.try_recv()
+            success, item, ok = ch.recv_nowait()
             if success:
                 return i, item, ok
         return -1, None, False

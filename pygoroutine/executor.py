@@ -134,7 +134,19 @@ class GoroutineExecutor:
         return await self._loop.run_in_executor(self._pool, func, *args)
 
 
+
 _executor = GoroutineExecutor()
+
+
+def _get_event_loop() -> AbstractEventLoop:
+    loop = asyncio._get_running_loop()
+    if loop is None:
+        _executor._init_worker()
+        return _executor._loop
+    else:
+        return loop
+
+
 go = _executor.go
 do = _executor.do
 delegate = _executor.delegate

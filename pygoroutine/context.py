@@ -92,7 +92,7 @@ def _propagate_cancel(parent: Context, child: _Canceler):
         # parent is never canceled
         return
     
-    success, _, _ = done.try_recv()
+    success, _, _ = done.recv_nowait()
     if success:
         # parent is already canceled
         child._cancel(False, parent.err()) # type: ignore
