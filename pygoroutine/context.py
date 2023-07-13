@@ -225,10 +225,14 @@ def WithDeadline(parent: Context, d: float) -> Tuple[Context, CancelFunc]:
     
     with c._cancel_ctx._lock:
         if c._cancel_ctx._err is None:
+            async def anomymous():
+                c._cancel(True, DeadlineExceeded)
+
             c._timer = AfterFunc(
                 dur, 
-                lambda: c._cancel(True, DeadlineExceeded),
+                anomymous,
             )
+            
         return c, lambda: c._cancel(True, Canceled)
 
 
