@@ -135,6 +135,32 @@ class Chan(Generic[T]):
         return await fut
 
 
+    def try_recv(self) -> Tuple[bool, Optional[T], bool]:
+        ''' Return: (success, item, ok)
+        '''
+        with self._lock:
+            if self._closed:
+                if self._buff:
+                    item = self._buff.popleft()
+                    return True, item ,True
+                else:
+                    return True, None, False
+            else:
+                if self._buff:
+                    item = self._buff.popleft()
+                    self._flush()
+                    return True, item, True
+                
+                elif self._putters:
+                    futput, item = self._putters.popleft()
+                    self._flush()
+                    futput.set_result(None)
+                    return True, item, True
+                
+                else:
+                    return False, None, False
+
+
     def _flush(self):
         while True:
             if self._getters:
@@ -164,7 +190,7 @@ class Chan(Generic[T]):
                 break
     
 
-    async def _hook_getter(self, getter: _ChanGetter[T]):
+    def _hook_getter(self, getter: _ChanGetter[T]):
         with self._lock:
             if self._closed:
                 if self._buff:
@@ -176,21 +202,12 @@ class Chan(Generic[T]):
             else:
                 self._getters.append(getter)
                 self._flush()
-        
-
-async def select(*chans: Chan[Any]) -> Tuple[int, Any, bool]: 
-    assert len(chans) > 0
-    fut = asyncio.Future[Tuple[int, Any, bool]]()
-    lock = threading.Lock()
-    for i, ch in enumerate(chans):
-        getter = _MultiChanGetter(i, fut, lock)
-        await ch._hook_getter(getter)
-        if fut.done():
-            return await fut
-    return await fut
 
 
 class _NilChan(Chan[T]):
+    def close(self):
+        raise Exception('closing nil chan')
+    
     async def send(self, item: T):
         fut = asyncio.Future()
         await fut
@@ -199,6 +216,30 @@ class _NilChan(Chan[T]):
         fut = asyncio.Future[Tuple[Optional[T], bool]]()
         return await fut
 
-    async def _hook_getter(self, getter: _ChanGetter[T]):
+    def try_recv(self) -> Tuple[bool, Optional[T], bool]:
+        return False, None, False
+
+    def _hook_getter(self, getter: _ChanGetter[T]):
         pass
-    
+
+
+nilchan = _NilChan()
+
+
+async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bool]:
+    if default:
+        for i, ch in enumerate(chans):
+            success, item, ok = ch.try_recv()
+            if success:
+                return i, item, ok
+        return -1, None, False
+
+    else:
+        fut = asyncio.Future[Tuple[int, Any, bool]]()
+        lock = threading.Lock()
+        for i, ch in enumerate(chans):
+            getter = _MultiChanGetter(i, fut, lock)
+            ch._hook_getter(getter)
+            if fut.done():
+                return await fut
+        return await fut
