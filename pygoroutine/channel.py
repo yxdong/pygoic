@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 import asyncio
 from asyncio import Future
 from collections import deque
+import random
 import threading
 from typing import Any, Generic, Optional, Tuple, TypeVar
 
@@ -83,7 +84,7 @@ class Chan(Generic[T]):
         assert buffsize >= 0
         self._buffsize = buffsize
         self._buff = deque[T]()
-        self._getters = deque[_ChanGetter[T]]()
+        self._getters = deque[_ChanGetter[T]]()  # TODO: use LinkedList
         self._putters = deque[Tuple[Future[None], T]]()
 
         self._closed = False
@@ -140,6 +141,12 @@ class Chan(Generic[T]):
             if self._closed:
                 raise ChanClosedError('chan closed')
             
+            self._flush()
+            while self._getters:
+                getter = self._getters.popleft()
+                if getter.set(item):
+                    return True
+                
             if len(self._buff) < self._buffsize:
                 self._buff.append(item)
                 return True
@@ -242,8 +249,11 @@ nilchan = _NilChan()
 
 
 async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bool]:
+    shuffled_chans = list(chans)
+    random.shuffle(shuffled_chans)
+
     if default:
-        for i, ch in enumerate(chans):
+        for i, ch in enumerate(shuffled_chans):
             success, item, ok = ch.recv_nowait()
             if success:
                 return i, item, ok
@@ -252,7 +262,7 @@ async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bo
     else:
         fut = asyncio.Future[Tuple[int, Any, bool]]()
         lock = threading.Lock()
-        for i, ch in enumerate(chans):
+        for i, ch in enumerate(shuffled_chans):
             getter = _MultiChanGetter(i, fut, lock)
             ch._hook_getter(getter)
             if fut.done():
