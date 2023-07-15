@@ -8,6 +8,7 @@ import time
 from typing import List
 from pygoroutine import go, do, select
 from pygoroutine.channel import Chan
+from pygoroutine.context import Background, WithCancel, WithTimeout
 from pygoroutine.executor import GoroutineExecutor, delegate
 
 
@@ -125,11 +126,11 @@ async def chan_test_main():
     
     async def w3():
         await asyncio.sleep(0.3)
-        await ch1.close()
+        ch1.close()
         
     async def w4():
-        await asyncio.sleep(0.3)
-        await ch2.close()        
+        await asyncio.sleep(0.31)
+        ch2.close()        
     
     go(w1())
     go(w2())
@@ -144,6 +145,15 @@ async def chan_test_main():
     print(await ch1.recv())
     
 
+async def test_context():
+    ctx0 = Background()
+    ctx1, cancel = WithTimeout(ctx0, 1)
+
+
+    x = await ctx1.done().recv()
+    print(x)
+    print(ctx1.err())
+
 
 if __name__ == '__main__':
     '''
@@ -156,7 +166,7 @@ if __name__ == '__main__':
         f.result()
         print(f.result())
     '''
-    do(chan_test_main())
+    do(test_context())
     
 
 

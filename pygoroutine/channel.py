@@ -263,11 +263,11 @@ nilchan = _NilChan()
 
 
 async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bool]:
-    shuffled_chans = list(chans)
-    random.shuffle(shuffled_chans)
+    shuffled = list(enumerate(chans))
+    random.shuffle(shuffled)
 
     if default:
-        for i, ch in enumerate(shuffled_chans):
+        for i, ch in shuffled:
             success, item, ok = ch.recv_nowait()
             if success:
                 return i, item, ok
@@ -276,7 +276,7 @@ async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bo
     else:
         fut = asyncio.Future[Tuple[int, Any, bool]]()
         lock = threading.Lock()
-        for i, ch in enumerate(shuffled_chans):
+        for i, ch in shuffled:
             getter = _MultiChanGetter(i, fut, lock)
             ch._hook_getter(getter)
             if fut.done():
