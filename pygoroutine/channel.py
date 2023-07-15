@@ -79,6 +79,7 @@ class _MultiChanGetter(_ChanGetter[Any]):
         return self._set_result(None, False)
 
 
+
 class Chan(Generic[T]):
     def __init__(self, buffsize: int = 0):
         assert buffsize >= 0
@@ -221,6 +222,19 @@ class Chan(Generic[T]):
             else:
                 self._getters.append(getter)
                 self._flush()
+
+
+    def __aiter__(self):
+        return self
+    
+
+    async def __anext__(self) -> T:
+        item, ok = await self.recv()
+        if ok:
+            return item # type: ignore
+        else:
+            raise StopAsyncIteration
+
 
 
 class _NilChan(Chan[T]):
