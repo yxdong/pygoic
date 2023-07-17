@@ -99,7 +99,7 @@ def test_do_in_coro_with_error():
     async def f1():
         pass
     async def f2():
-        do(f1())
+        do(go(f1()))
     try:
         do(f2())
     except:
