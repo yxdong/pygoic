@@ -1,10 +1,10 @@
 
 
 import time
-from pygoroutine import go, do
-from pygoroutine.channel import Chan
-from pygoroutine.context import Background, CanceledError, DeadlineExceededError, WithCancel, WithDeadline, WithTimeout, WithValue
-from pygoroutine.context import nilchan
+from pygoic import go, do
+from pygoic.channel import Chan
+from pygoic.context import Background, CanceledError, DeadlineExceededError, WithCancel, WithDeadline, WithTimeout, WithValue
+from pygoic.context import nilchan
 
 
 def test_background():

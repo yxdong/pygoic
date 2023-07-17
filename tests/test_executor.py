@@ -4,7 +4,7 @@
 import asyncio
 import time
 from typing import List
-from pygoroutine import go, do, delegate
+from pygoic import go, do, delegate
 
 
 def test_go_basic():
