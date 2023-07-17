@@ -15,7 +15,8 @@ def test_background():
 
 
 def test_cancel():
-    done = Chan()
+    done1 = Chan()
+    done2 = Chan()
     ctx1, cancel1 = WithCancel(Background())
     ctx2 = WithValue(ctx1, 'k', 'v')
     ctx3, _ = WithTimeout(ctx2, 0.1)
@@ -30,17 +31,18 @@ def test_cancel():
         assert ctx2.err() is None
         assert ctx1.err() is None
 
+        done1.close()
         await ctx3.done().recv()
         assert isinstance(ctx3.err(), CanceledError)
         assert isinstance(ctx2.err(), CanceledError)
         assert isinstance(ctx1.err(), CanceledError)
-
-        done.close()
+        done2.close()
 
     go(f1())
     cancel4()
+    do(done1.recv())
     cancel1()
-    do(done.recv())
+    do(done2.recv())
 
 
 def test_timeout():
