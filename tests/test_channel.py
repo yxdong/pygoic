@@ -11,15 +11,17 @@ def test_chan_send_buff():
     done = Chan()
     
     async def f1():
+        # won't block
         await ch.send('f1_0')
         L.append('f1_0')
+        # block until recived once
         await ch.send('f1_1')
         L.append('f1_1')
         
     async def f2():
         await asyncio.sleep(0.001)
         L.append('f2_0')
-        r, ok = await ch.recv()
+        r, ok = await ch.recv()  # unblock 'f1_1'
         assert r == 'f1_0' and ok
         await asyncio.sleep(0.001)
         L.append('f2_1')
