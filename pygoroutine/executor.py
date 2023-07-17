@@ -1,6 +1,6 @@
 import asyncio
 import threading
-from asyncio import AbstractEventLoop, Future
+from asyncio import AbstractEventLoop, Future as AsyncFuture
 from concurrent.futures import Future as ConcurrentFuture, ThreadPoolExecutor
 from typing import Any, Awaitable, Callable, Generic, Optional, TypeVar
 
@@ -9,62 +9,39 @@ T = TypeVar('T')
 
 
 class CoFuture(Generic[T]):
-    def __init__(self, future: Future[T], loop: AbstractEventLoop):
+    def __init__(self, future: ConcurrentFuture[T], loop: AbstractEventLoop):
         self._future = future
         self._loop = loop
-
 
     def cancelled(self) -> bool:
         return self._future.cancelled()
     
+    def running(self) -> bool:
+        return self._future.running()
     
     def done(self) -> bool:
         return self._future.done()
     
-    
     def result(self, timeout: Optional[float] = None) -> T:
         if asyncio._get_running_loop() is not None:
             raise RuntimeError(f"Not allow to call `CoFuture.result` inside a event loop.")
-        
-        if self._future.done():
-            return self._future.result()
-        
-        future = ConcurrentFuture()
-        self._loop.call_soon_threadsafe(self._future_callback, future)
-        return future.result(timeout)
-        
+        else:
+            return self._future.result(timeout)
         
     def exception(self, timeout: Optional[float] = None) -> Optional[BaseException]:
         if asyncio._get_running_loop() is not None:
             raise RuntimeError(f"Not allow to call `CoFuture.exception` inside a event loop.")
-        
-        if self._future.done():
-            return self._future.exception()
-        
-        future = ConcurrentFuture()
-        self._loop.call_soon_threadsafe(self._future_callback, future)
-        return future.exception(timeout)
-
-
-    def _future_callback(self, future: ConcurrentFuture):
-        try:
-            asyncio.futures._chain_future(self._future, future) # type: ignore
-        except (SystemExit, KeyboardInterrupt):
-            raise
-        except BaseException as exc:
-            if future.set_running_or_notify_cancel():
-                future.set_exception(exc)
-            raise
-
+        else:
+            return self._future.exception(timeout)
 
     def __await__(self):
-        return self._future.__await__()
+        afut = asyncio.wrap_future(self._future, loop=self._loop)
+        return afut.__await__()
+
+    __iter__ = __await__
 
 
-    def __iter__(self):
-        return self._future.__iter__()
-    
-        
+
 class GoroutineExecutor:
     def __init__(self):
         self._lock = threading.Lock()
@@ -106,6 +83,17 @@ class GoroutineExecutor:
             return loop
 
 
+    def _future_callback(self, afut: AsyncFuture, cfut: ConcurrentFuture):
+        try:
+            asyncio.futures._chain_future(afut, cfut) # type: ignore
+        except (SystemExit, KeyboardInterrupt):
+            raise
+        except BaseException as exc:
+            if cfut.set_running_or_notify_cancel():
+                cfut.set_exception(exc)
+            raise
+
+
     def __del__(self):
         self.close()
     
@@ -120,18 +108,22 @@ class GoroutineExecutor:
     
     def go(self, coro: Awaitable[T]) -> CoFuture[T]:
         loop = self._get_event_loop()
-        future = asyncio.ensure_future(coro, loop=loop)
-        return CoFuture(future, loop)
+        afut = asyncio.ensure_future(coro, loop=loop)
+        cfut = ConcurrentFuture()
+        loop.call_soon_threadsafe(self._future_callback, afut, cfut)
+        return CoFuture(cfut, loop)
 
     
     def do(self, coro: Awaitable[T]) -> T:
         if asyncio._get_running_loop() is not None:
             raise RuntimeError(f"Not allow to call `do` inside a event loop.")
-        
-        self._init_worker()
-        future = asyncio.ensure_future(coro, loop=self._loop)
-        cofuture = CoFuture(future, self._loop)
-        return cofuture.result()
+        else:
+            self._init_worker()
+            
+        afut = asyncio.ensure_future(coro, loop=self._loop)
+        cfut = ConcurrentFuture()
+        self._loop.call_soon_threadsafe(self._future_callback, afut, cfut)
+        return cfut.result()
 
 
     async def delegate(self, func: Callable[..., T], *args: Any) -> T:
