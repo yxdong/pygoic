@@ -48,7 +48,7 @@ class CoFuture(Generic[T]):
 
     def _future_callback(self, future: ConcurrentFuture):
         try:
-            asyncio.futures._chain_future(self._future, future)
+            asyncio.futures._chain_future(self._future, future) # type: ignore
         except (SystemExit, KeyboardInterrupt):
             raise
         except BaseException as exc:
