@@ -97,6 +97,15 @@ class GoroutineExecutor:
         self._loop.run_forever()
 
 
+    def _get_event_loop(self) -> AbstractEventLoop:
+        loop = asyncio._get_running_loop()
+        if loop is None:
+            self._init_worker()
+            return self._loop
+        else:
+            return loop
+
+
     def __del__(self):
         self.close()
     
@@ -110,11 +119,7 @@ class GoroutineExecutor:
     
     
     def go(self, coro: Awaitable[T]) -> CoFuture[T]:
-        loop = asyncio._get_running_loop()
-        if loop is None:
-            self._init_worker()
-            loop = self._loop
-        
+        loop = self._get_event_loop()
         future = asyncio.ensure_future(coro, loop=loop)
         return CoFuture(future, loop)
 
@@ -136,17 +141,7 @@ class GoroutineExecutor:
 
 
 _executor = GoroutineExecutor()
-
-
-def _get_event_loop() -> AbstractEventLoop:
-    loop = asyncio._get_running_loop()
-    if loop is None:
-        _executor._init_worker()
-        return _executor._loop
-    else:
-        return loop
-
-
+_get_event_loop = _executor._get_event_loop
 go = _executor.go
 do = _executor.do
 delegate = _executor.delegate
