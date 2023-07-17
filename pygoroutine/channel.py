@@ -82,7 +82,6 @@ class _MultiChanGetter(_ChanGetter[Any]):
 
 class Chan(Generic[T]):
     def __init__(self, buffsize: int = 0):
-        assert buffsize >= 0
         self._buffsize = buffsize
         self._buff = deque[T]()
         self._getters = deque[_ChanGetter[T]]()  # TODO: use LinkedList
@@ -148,7 +147,7 @@ class Chan(Generic[T]):
                 if getter.set(item):
                     return True
                 
-            if len(self._buff) < self._buffsize:
+            if self._buffsize < 0 or len(self._buff) < self._buffsize:
                 self._buff.append(item)
                 return True
             else:
@@ -200,7 +199,7 @@ class Chan(Generic[T]):
                     break
             
             elif self._putters:
-                if len(self._buff) < self._buffsize:
+                if self._buffsize < 0 or len(self._buff) < self._buffsize:
                     futput, item = self._putters.popleft()
                     self._buff.append(item)
                     futput.set_result(None)
