@@ -41,8 +41,6 @@ def test_cancel():
 
 
 def test_timeout():
-    done = Chan()
-
     ctx0, _ = WithTimeout(Background(), 0)
     ctx1= WithValue(ctx0, 'k', 'v')
     _, ok1 = do(ctx1.done().recv())
@@ -71,16 +69,11 @@ def test_timeout():
         assert ctx4.err() == DeadlineExceeded
         assert ctx3.err() == DeadlineExceeded
         assert ctx2.err() == DeadlineExceeded
-        
-        done.close()
 
-    go(f1())
-    do(done.recv())
+    do(f1())
 
 
 def test_deadline():
-    done = Chan()
-    
     ctx, cancel = WithDeadline(Background(), time.time() - 1)
     assert ctx.err() is not None
 
@@ -93,10 +86,8 @@ def test_deadline():
     async def f1():
         await ctx.done().recv()
         assert ctx.err()
-        done.close()
 
-    go(f1())
-    do(done.recv())
+    do(f1())
 
 
 def test_value():
@@ -110,5 +101,4 @@ def test_value():
     assert ctx2.value('k2') == 'v2'
     assert ctx3.value('k1') == 'v3'
     assert ctx3.value('k2') == 'v2'
-
 
