@@ -4,7 +4,7 @@
 
 ```python
 import asyncio
-from pygoic import Chan, go, do
+from pygoic import go, do, Chan, select
 from pygoic import Background, WithCancel
 
 ctx, cancel = WithCancel(Background())
@@ -17,8 +17,12 @@ async def foo1():
     
 async def foo2():
     await asyncio.sleep(0.01)
-    print('foo2')
-    await ch.recv()
+    print('foo2: 0')
+    id, x, ok = await select(ch, ctx.done())
+    if id == 0:
+        print('foo2: ch')
+    elif id == 1:
+        print('foo2: ctx')
     
 async def foo3():
     await ctx.done().recv()
@@ -27,10 +31,11 @@ async def foo3():
 go(foo1())
 go(foo2())
 go(foo3())
-do(ctx.done().recv())  # block until ctx done
+do(ctx.done().recv())
 
 ### Output:
-# foo2
+# foo2: 0
+# foo2: ch
 # foo1
 # foo3
 
