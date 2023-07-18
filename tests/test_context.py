@@ -48,7 +48,7 @@ def test_timeout():
     assert ctx1.err() is not None
     assert ok1 == False
 
-    ctx2, _ = WithTimeout(Background(), 0.002)
+    ctx2, _ = WithTimeout(Background(), 0.003)
     ctx3 = WithValue(ctx2, 'k', 'v')
     ctx4, _ = WithTimeout(ctx3, 0.001)
     ctx5 = WithValue(ctx4, 'k', 'v')

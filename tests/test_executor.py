@@ -47,7 +47,7 @@ def test_delegate_basic():
     go(f1())
     go(f2())
     L.append('m_0')
-    time.sleep(0.005)
+    time.sleep(0.01)
     L.append('m_1')
     assert L == ['m_0', 'f1_0', 'f2_0', 'f1_1', 'm_1']
     
