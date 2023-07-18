@@ -2,9 +2,8 @@
 
 import time
 from pygoic import go, do
-from pygoic.channel import Chan
-from pygoic.context import Background, CanceledError, DeadlineExceededError, WithCancel, WithDeadline, WithTimeout, WithValue
-from pygoic.context import nilchan
+from pygoic import Chan, nilchan
+from pygoic import Background, Canceled, DeadlineExceeded, WithCancel, WithDeadline, WithTimeout, WithValue
 
 
 def test_background():
@@ -23,16 +22,16 @@ def test_cancel():
 
     async def f1():
         await ctx5.done().recv()
-        assert isinstance(ctx5.err(), CanceledError)
-        assert isinstance(ctx4.err(), CanceledError)
+        assert ctx5.err() == Canceled
+        assert ctx4.err() == Canceled
         assert ctx3.err() is None
         assert ctx2.err() is None
         assert ctx1.err() is None
 
         await ctx3.done().recv()
-        assert isinstance(ctx3.err(), CanceledError)
-        assert isinstance(ctx2.err(), CanceledError)
-        assert isinstance(ctx1.err(), CanceledError)
+        assert ctx3.err() == Canceled
+        assert ctx2.err() == Canceled
+        assert ctx1.err() == Canceled
 
     x = go(f1())
     cancel4()
@@ -62,16 +61,16 @@ def test_timeout():
 
     async def f1():
         await ctx5.done().recv()
-        assert isinstance(ctx5.err(), DeadlineExceededError)
-        assert isinstance(ctx4.err(), DeadlineExceededError)
+        assert ctx5.err() == DeadlineExceeded
+        assert ctx4.err() == DeadlineExceeded
         assert ctx3.err() is None
         assert ctx2.err() is None
 
         await ctx3.done().recv()
-        assert isinstance(ctx5.err(), DeadlineExceededError)
-        assert isinstance(ctx4.err(), DeadlineExceededError)
-        assert isinstance(ctx3.err(), DeadlineExceededError)
-        assert isinstance(ctx2.err(), DeadlineExceededError)
+        assert ctx5.err() == DeadlineExceeded
+        assert ctx4.err() == DeadlineExceeded
+        assert ctx3.err() == DeadlineExceeded
+        assert ctx2.err() == DeadlineExceeded
         
         done.close()
 

@@ -2,9 +2,9 @@
 
 import asyncio
 from pygoic import go, do
-from pygoic.channel import select, Chan
-from pygoic.context import Background, WithCancel
-from pygoic.time import After, AfterFunc
+from pygoic import select, Chan
+from pygoic import Background, WithCancel
+from pygoic import After, AfterFunc
 
 
 def test_after():

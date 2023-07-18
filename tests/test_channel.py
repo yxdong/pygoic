@@ -1,8 +1,8 @@
 
 import asyncio
 from typing import List
-from pygoic import go, do, delegate
-from pygoic.channel import Chan, nilchan, select
+from pygoic import go, do
+from pygoic import Chan, nilchan, select
 
 
 def test_chan_send_with_buff():
