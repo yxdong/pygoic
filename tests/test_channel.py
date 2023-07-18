@@ -1,8 +1,8 @@
 
 import asyncio
 from typing import List
-from pygoic import go, do, delegate
-from pygoic.channel import Chan, nilchan, select
+from pygoic import go, do
+from pygoic import Chan, nilchan, select
 
 
 def test_chan_send_with_buff():
@@ -123,6 +123,9 @@ def test_select():
         id, x, ok = await select(ch1, ch2)
         assert id == 0
         assert x == 'f1_0'
+        id, x, ok = await select(ch1, ch2)
+        assert id == 1
+        assert x == 'f2_0'
 
     go(f1())
     go(f2())

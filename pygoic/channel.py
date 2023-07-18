@@ -1,12 +1,12 @@
 
-
+from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from asyncio import Future
 from collections import deque
 import random
 import threading
-from typing import Any, Generic, Optional, Tuple, TypeVar
+from typing import Any, Generic, Optional, Tuple, TypeVar, Deque
 
 
 T = TypeVar('T')
@@ -83,9 +83,9 @@ class _MultiChanGetter(_ChanGetter[Any]):
 class Chan(Generic[T]):
     def __init__(self, buffsize: int = 0):
         self._buffsize = buffsize
-        self._buff = deque[T]()
-        self._getters = deque[_ChanGetter[T]]()  # TODO: use LinkedList
-        self._putters = deque[Tuple[Future[None], T]]()
+        self._buff: Deque[T] = deque()
+        self._getters: Deque[_ChanGetter[T]] = deque()  # TODO: use LinkedList
+        self._putters: Deque[Tuple[Future[None], T]] = deque()
 
         self._closed = False
         self._lock = threading.Lock()
@@ -112,7 +112,7 @@ class Chan(Generic[T]):
             if self._closed:
                 raise ChanClosedError('chan closed')
             
-            fut = asyncio.Future[None]()
+            fut: asyncio.Future[None] = asyncio.Future()
             self._putters.append((fut, item))
             self._flush()
             
@@ -128,7 +128,7 @@ class Chan(Generic[T]):
                 else:
                     return None, False
             
-            fut = asyncio.Future[Tuple[Optional[T], bool]]()
+            fut: asyncio.Future[Tuple[Optional[T], bool]] = asyncio.Future()
             getter = _SingleChanGetter[T](fut)
             self._getters.append(getter)
             self._flush()
@@ -245,7 +245,7 @@ class _NilChan(Chan[T]):
         await fut
 
     async def recv(self) -> Tuple[Optional[T], bool]:
-        fut = asyncio.Future[Tuple[Optional[T], bool]]()
+        fut: asyncio.Future[Tuple[Optional[T], bool]] = asyncio.Future()
         return await fut
 
     def send_nowait(self, item: T) -> bool:
@@ -273,7 +273,7 @@ async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bo
         return -1, None, False
 
     else:
-        fut = asyncio.Future[Tuple[int, Any, bool]]()
+        fut: asyncio.Future[Tuple[int, Any, bool]] = asyncio.Future()
         lock = threading.Lock()
         for i, ch in shuffled:
             getter = _MultiChanGetter(i, fut, lock)
