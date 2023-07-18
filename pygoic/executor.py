@@ -9,6 +9,7 @@ from typing import Any, Awaitable, Callable, Generic, Optional, TypeVar
 
 T = TypeVar('T')
 
+# TODO: only awaitable is enought
 
 class CoFuture(Generic[T]):
     def __init__(self, future: ConcurrentFuture[T], loop: AbstractEventLoop):
