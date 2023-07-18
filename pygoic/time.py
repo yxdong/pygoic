@@ -23,7 +23,7 @@ class _Value(Generic[T]):
 
 class Timer:
     def __init__(self, duration: float, func: Optional[Callable[[], Any]] = None):
-        self.c = Chan[float](1)
+        self.C = Chan[float](1)
         self._active: _Value[bool] = _Value(True)
         self._lock = threading.Lock()
         self._func: Callable[[], Any]
@@ -79,7 +79,7 @@ class Timer:
 
 
     def _send_time(self):
-        self.c.send_nowait(time.time())
+        self.C.send_nowait(time.time())
 
 
 
@@ -91,6 +91,6 @@ def AfterFunc(duration: float, func: Callable[[], Awaitable[Any]]) -> Timer:
 
 
 def After(duration: float) -> Chan[float]:
-	return Timer(duration).c
+	return Timer(duration).C
 
 
