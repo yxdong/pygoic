@@ -123,6 +123,9 @@ def test_select():
         id, x, ok = await select(ch1, ch2)
         assert id == 0
         assert x == 'f1_0'
+        id, x, ok = await select(ch1, ch2)
+        assert id == 1
+        assert x == 'f2_0'
 
     go(f1())
     go(f2())

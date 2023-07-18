@@ -7,3 +7,4 @@ from .context import (
     Background, TODO, WithCancel, WithDeadline, WithTimeout, WithValue,
 )
 from .time import After, AfterFunc, Timer
+from .sync import WaitGroup
