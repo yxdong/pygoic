@@ -61,7 +61,7 @@ $ pip install pygoic
 
 ### go and do
 
-`go` accepts a coroutine object (call of async funcion) as parameter, and start executing it concurrently (not accurate). You can expect `go` to behave the same as in Golang. Except it will return an `awaitable`, which can be used with `await` or `do` when need to wait.
+`go` accepts a coroutine object (call of async funcion) as parameter, and start executing it concurrently (not accurate). You can expect `go` to behave the same as in Golang. Except it will return an `awaitable`, which can be consumed by `await` or `do` if needed.
 
 `do` also accepts a coroutine object as parameter. The difference is that it will **block** until coroutine object is finished, and will return the result.
 

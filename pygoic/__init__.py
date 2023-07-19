@@ -1,6 +1,6 @@
 
 
-from .executor import go, do, delegate, CoFuture
+from .executor import go, do, delegate
 from .channel import Chan, select, ChanClosedError, nilchan
 from .context import (
     Context, CancelFunc, Canceled, DeadlineExceeded,

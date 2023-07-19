@@ -4,45 +4,10 @@ import asyncio
 import threading
 from asyncio import AbstractEventLoop, Future as AsyncFuture
 from concurrent.futures import Future as ConcurrentFuture, ThreadPoolExecutor
-from typing import Any, Awaitable, Callable, Generic, Optional, TypeVar
+from typing import Any, Awaitable, Callable, Optional, TypeVar
 
 
 T = TypeVar('T')
-
-# TODO: only awaitable is enought
-
-class CoFuture(Generic[T]):
-    def __init__(self, future: ConcurrentFuture[T], loop: AbstractEventLoop):
-        self._future = future
-        self._loop = loop
-
-    def cancelled(self) -> bool:
-        return self._future.cancelled()
-    
-    def running(self) -> bool:
-        return self._future.running()
-    
-    def done(self) -> bool:
-        return self._future.done()
-    
-    def result(self, timeout: Optional[float] = None) -> T:
-        if asyncio._get_running_loop() is not None:
-            raise RuntimeError(f"Not allow to call `CoFuture.result` inside a event loop.")
-        else:
-            return self._future.result(timeout)
-        
-    def exception(self, timeout: Optional[float] = None) -> Optional[BaseException]:
-        if asyncio._get_running_loop() is not None:
-            raise RuntimeError(f"Not allow to call `CoFuture.exception` inside a event loop.")
-        else:
-            return self._future.exception(timeout)
-
-    def __await__(self):
-        afut = asyncio.wrap_future(self._future, loop=self._loop)
-        return afut.__await__()
-
-    __iter__ = __await__
-
 
 
 class GoroutineExecutor:
@@ -109,12 +74,11 @@ class GoroutineExecutor:
                 self._pool.shutdown(wait=False)
     
     
-    def go(self, coro: Awaitable[T]) -> CoFuture[T]:
+    def go(self, coro: Awaitable[T]) -> Awaitable[T]:
         loop = self._get_event_loop()
-        afut = asyncio.ensure_future(coro, loop=loop)
-        cfut = ConcurrentFuture()
-        loop.call_soon_threadsafe(self._future_callback, afut, cfut)
-        return CoFuture(cfut, loop)
+        future = asyncio.ensure_future(coro, loop=loop)
+        loop.call_soon_threadsafe(lambda: None)
+        return future
 
     
     def do(self, coro: Awaitable[T]) -> T:
@@ -140,3 +104,4 @@ _get_event_loop = _executor._get_event_loop
 go = _executor.go
 do = _executor.do
 delegate = _executor.delegate
+
