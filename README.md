@@ -1,6 +1,6 @@
 # pygoic
 
-**pygoic** is a **Go-like** asynchronous concurrency library for python based on asyncio.
+**pygoic** is a Go-like asynchronous concurrency library for python based on asyncio.
 
 ```python
 import asyncio
