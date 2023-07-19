@@ -261,6 +261,8 @@ class _NilChan(Chan[T]):
 nilchan = _NilChan()
 
 
+# TODO: both for recv and send
+
 async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bool]:
     shuffled = list(enumerate(chans))
     random.shuffle(shuffled)
