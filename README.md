@@ -6,42 +6,34 @@
 
 ```python
 import asyncio
-from pygoic import go, do, Chan, select
-from pygoic import Background, WithCancel
+from pygoic import go, do, Chan
 
-ctx, cancel = WithCancel(Background())
-ch = Chan()
+ch = Chan()                     # chan without buff
 
 async def foo1():
-    await ch.send('hi')     # wait until first "select" done in foo2
+    await ch.send('hi')         # wait until received in foo2
     print('foo1: 0')
-    cancel()                # will unblock second "select" in foo2
+    await ch.send('a')
+    await ch.send('b')
+    ch.close()
     
 async def foo2():
     await asyncio.sleep(0.01)
     print('foo2: 0')
-    
-    id, item, ok = await select(ch, ctx.done())   # gives (0, 'hi', True)
-    if id == 0:
-        print('foo2: 1, ch')
-    elif id == 1:
-        print('foo2: 1, ctx.done')
-    
-    id, item, ok = await select(ch, ctx.done())   # gives (1, None, False)
-    if id == 0:
-        print('foo2: 2, ch')
-    elif id == 1:
-        print('foo2: 2, ctx.done')
+    await ch.recv()             # gives ('hi', True)
+    async for x in ch:          # loop until chan is closed and empty
+        print(f'foo2: {x}')
+    print('foo2: 1')
 
 go(foo1())
-go(foo2())
-do(ctx.done().recv())    # block until ctx canceled
+do(foo2())                      # block until foo2 done
 
 ### Output ###
 # foo2: 0
-# foo2: 1, ch
 # foo1: 0
-# foo2: 2, ctx.done
+# foo2: a
+# foo2: b
+# foo2: 1
 
 ```
 
