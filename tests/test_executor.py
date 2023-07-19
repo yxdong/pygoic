@@ -64,16 +64,22 @@ def test_go_do_wrap():
     assert L == ['f1_0']
         
         
-def test_go_result():
-    L: List[str] = []
+def test_go_multi_consume():
+    L = []
     async def f1():
         await asyncio.sleep(0.001)
         L.append('f1_0')
-        return 'f1'
+        return 'hi'
     
-    x = go(f1())
-    r = x.result()
-    assert r == 'f1'
+    async def f2():
+        x = go(f1())
+        assert await x == 'hi'
+        assert await x == 'hi'
+        return x
+    
+    x = do(f2())
+    assert do(x) == 'hi'
+    assert do(x) == 'hi'
     assert L == ['f1_0']
     
 
@@ -100,21 +106,6 @@ def test_do_in_coro_with_error():
         pass
     async def f2():
         do(go(f1()))
-    try:
-        do(f2())
-    except:
-        pass
-    else:
-        assert False
-
-
-def test_go_result_in_coro_with_error():
-    async def f1():
-        pass
-    async def f2():
-        x = go(f1())
-        x.result()
-
     try:
         do(f2())
     except:
