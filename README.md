@@ -1,76 +1,67 @@
 # pygoic
 
-**pygoic** is a simple, golang style, concurrency python library on asyncio.
+**pygoic** is a Go-like asynchronous concurrency library for python based on asyncio.
+
+[![Python](https://img.shields.io/pypi/pyversions/pygoic.svg)](https://pypi.org/project/pygoic)
+[![PyPI](https://badge.fury.io/py/pygoic.svg)](https://pypi.org/project/pygoic)
+
 
 ```python
 import asyncio
-from pygoic import go, do, Chan, select
-from pygoic import Background, WithCancel
+from pygoic import go, do, Chan
 
-ctx, cancel = WithCancel(Background())
-ch = Chan()
+ch = Chan()                     # chan without buff
 
 async def foo1():
-    await ch.send('hi')
-    print('foo1')
-    cancel()
+    await ch.send('hi')         # wait until received in foo2
+    print('foo1: 0')
+    await ch.send('a')
+    await ch.send('b')
+    ch.close()
     
 async def foo2():
     await asyncio.sleep(0.01)
     print('foo2: 0')
-    id, x, ok = await select(ch, ctx.done())
-    if id == 0:
-        print('foo2: ch')
-    elif id == 1:
-        print('foo2: ctx')
-    
-async def foo3():
-    await ctx.done().recv()
-    print('foo3')
-    
-go(foo1())
-go(foo2())
-go(foo3())
-do(ctx.done().recv())
+    await ch.recv()             # gives ('hi', True)
+    async for x in ch:          # loop until chan is closed and empty
+        print(f'foo2: {x}')
+    print('foo2: 1')
 
-### Output:
+go(foo1())
+do(foo2())                      # block until foo2 done
+
+### Output ###
 # foo2: 0
-# foo2: ch
-# foo1
-# foo3
+# foo1: 0
+# foo2: a
+# foo2: b
+# foo2: 1
 
 ```
 
-pygoic allows you to levarage coroutine in python extremely easily. There's no need to manually deal with a lot of trival and error-prone details, especially about event loop, which is designed to be so anti-human. This library will try its best to help you forgot those unpleasant things.
+pygoic allows you to levarage coroutine in python extremely easily. There's no need to manually deal with trival and error-prone details, especially about event loop, which is designed to be so anti-human. This library will try its best to help you forgot those unpleasant things.
 
-Follow a few simple principles, and you will get a golang-like concurrent programming experience. 
+Follow a few simple principles, and you will get a Go-like concurrent programming experience. 
 
 
 ## Principles
-1. Do not call any **blocking** operation inside coroutines. If you can't avoid it, use `delegate`.  
-    *Common blocking operations include but are not limited to:*
-    * `requests.post`
-    * `time.sleep`
-    * `queue.Queue.get`
-    * `threading.Lock.acquire`
-2. `do` can only be called out of coroutines, while `go` is for anywhere.
 
+1. Don't call any **blocking** operation inside coroutines. If not avoidable, please use `delegate`.
+2. Function `do` can only be called out of coroutines, while `go` is for anywhere.
 
 
 ## Installation
 
 ```console
-$ python -m pip install pygoic
+$ pip install pygoic
 ```
 
-pygoic officially supports Python 3.8+.
 
+## Quick Tutorial
 
-## Tutorial
+### go and do
 
-### **go** and **do**
-
-`go` accepts a coroutine object (call of async funcion) as parameter, and start executing it concurrently (not accurate). You can expect `go` to behave the same as in golang. Except it will return an `awaitable`, which can be used with `await` or `do` when need to wait.
+`go` accepts a coroutine object (call of async funcion) as parameter, and start executing it concurrently (not accurate). You can expect `go` to behave the same as in Golang. Except it will return an `awaitable`, which can be used with `await` or `do` when need to wait.
 
 `do` also accepts a coroutine object as parameter. The difference is that it will **block** until coroutine object is finished, and will return the result.
 
@@ -92,7 +83,7 @@ async def foo2():
 go(foo1(1))
 print(do(foo2()))
 
-### Output:
+### Output ###
 # foo2
 # foo1: 1
 # foo1: 2
@@ -101,7 +92,7 @@ print(do(foo2()))
 
 ```
 
-### **delegate**
+### delegate
 
 `delegate` accepts a function and the args to call this function. It will execute this funcion in a thread pool, and return an `awaitable`. Looks like it is an asynchronous operation.
 
@@ -121,57 +112,58 @@ x = go(foo1())
 go(foo2())
 do(x)
 
-### Output:
+### Output ###
 # foo2
 # foo1
 
 ```
 
-### **Chan** and **select**
+### Chan and select
 
-Behavior of `Chan` is similar to that in golang. `select` accepts `Chan`s as parameters, and returns when one of the `Chan`s can be read.
+Behavior of `Chan` is similar to that in Golang. 
+
+`select` accepts `Chan`s as parameters, and returns when any of the `Chan` operations is unblocked. 
 
 ```python
 from pygoic import Chan, select, go, do
 
 ch1 = Chan()
 ch2 = Chan()
-done = Chan()
 
 async def foo1():
-    await ch1.send('world')
-    print('foo1')
+    await ch1.send('hi')
+    print('foo1: 0')
+    await ch2.send('a')
+    await ch2.send('b')
     ch2.close()
 
 async def foo2():
-    id, x, ok = await select(ch1, ch2)
+    id, item, ok = await select(ch1, ch2)
     if id == 0:
-        print(f'foo2: ch1')
+        print(f'foo2: 0, ch1')
     elif id == 1:
-        print(f'foo2: ch2')
+        print(f'foo2: 0, ch2')
 
-    id, x, ok = await select(ch1, ch2)
-    if id == 0:
-        print(f'foo2: ch1')
-    elif id == 1:
-        print(f'foo2: ch2')
+    async for item in ch2:
+        print(f'foo2: 1, {item}')
 
-    done.close()
+    print('foo2: 2')
     
 go(foo1())
-go(foo2())
-do(done.recv())
+do(foo2())
 
-### Output:
-# foo2: ch1
-# foo1
-# foo2: ch2
+### Output ###
+# foo2: 0, ch1
+# foo1: 0
+# foo2: 1, a
+# foo2: 1, b
+# foo2: 2
 
 ```
 
-### **Context**
+### Context
 
-You can expect `Context` to behave the same as in golang.
+You can expect `Context` to behave the same as in Golang.
 
 ```python
 import asyncio
@@ -190,7 +182,7 @@ async def foo2():
     print(ctx3.value('k'))
     go(foo1())
     
-    id, x, ok = await select(ctx2.done(), ctx3.done())
+    id, item, ok = await select(ctx2.done(), ctx3.done())
     if id == 0:
         print('foo2: ctx2')
     elif id == 1:
@@ -200,15 +192,15 @@ go(foo1())
 go(foo2())
 do(ctx3.done().recv())
 
-### Output:
+### Output ###
 # v
 # foo2: ctx2
 
 ```
 
-### **After**, **AfterFunc** and **Timer**
+### After, AfterFunc and Timer
 
-Behave similar to golang.
+Behave the same as in Golang.
 
 ```python
 from pygoic import go, do, select, Chan
@@ -221,13 +213,13 @@ async def foo1():
     
 async def foo2():
     AfterFunc(0.015, foo1)
-    id, x, ok = await select(After(0.01), ch)
+    id, item, ok = await select(After(0.01), ch)
     if id == 0:
         print('foo2: after')
     elif id == 1:
         print('foo2: ch')
 
-    id, x, ok = await select(After(0.01), ch)
+    id, item, ok = await select(After(0.01), ch)
     if id == 0:
         print('foo2: after')
     elif id == 1:
@@ -235,15 +227,15 @@ async def foo2():
 
 do(foo2())
 
-### Output:
+### Output ###
 # foo2: after
 # foo2: ch
 
 ```
 
-### **WaitGroup**
+### WaitGroup
 
-Behave similar to golang.
+Behave the same as in Golang.
 
 ```python
 import asyncio
@@ -267,7 +259,7 @@ async def foo2():
 go(foo2())
 do(foo1())
 
-### Output:
+### Output ###
 # foo2: 0
 # foo1: 0
 # foo2: 1
