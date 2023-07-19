@@ -135,36 +135,35 @@ from pygoic import Chan, select, go, do
 
 ch1 = Chan()
 ch2 = Chan()
-done = Chan()
 
 async def foo1():
-    await ch1.send('world')
-    print('foo1')
+    await ch1.send('hi')
+    print('foo1: 0')
+    await ch2.send('a')
+    await ch2.send('b')
     ch2.close()
 
 async def foo2():
     id, item, ok = await select(ch1, ch2)
     if id == 0:
-        print(f'foo2: ch1')
+        print(f'foo2: 0, ch1')
     elif id == 1:
-        print(f'foo2: ch2')
+        print(f'foo2: 0, ch2')
 
-    id, item, ok = await select(ch1, ch2)
-    if id == 0:
-        print(f'foo2: ch1')
-    elif id == 1:
-        print(f'foo2: ch2')
+    async for item in ch2:
+        print(f'foo2: 1, {item}')
 
-    done.close()
+    print('foo2: 2')
     
 go(foo1())
-go(foo2())
-do(done.recv())
+do(foo2())
 
 ### Output ###
-# foo2: ch1
-# foo1
-# foo2: ch2
+# foo2: 0, ch1
+# foo1: 0
+# foo2: 1, a
+# foo2: 1, b
+# foo2: 2
 
 ```
 
