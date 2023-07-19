@@ -2,6 +2,8 @@
 
 **pygoic** is a Go-like asynchronous concurrency library for python based on asyncio.
 
+[![Supported Versions](https://img.shields.io/pypi/pyversions/pygoic.svg)](https://pypi.org/project/pygoic)
+
 ```python
 import asyncio
 from pygoic import go, do, Chan, select
@@ -59,8 +61,6 @@ Follow a few simple principles, and you will get a Go-like concurrent programmin
 ```console
 $ pip install pygoic
 ```
-
-pygoic officially supports Python 3.8+.
 
 
 ## Quick Tutorial
