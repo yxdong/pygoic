@@ -2,7 +2,9 @@
 
 **pygoic** is a Go-like asynchronous concurrency library for python based on asyncio.
 
-[![Supported Versions](https://img.shields.io/pypi/pyversions/pygoic.svg)](https://pypi.org/project/pygoic)
+[![Python](https://img.shields.io/pypi/pyversions/pygoic.svg)](https://pypi.org/project/pygoic)
+[![PyPI](https://badge.fury.io/py/pygoic.svg)](https://pypi.org/project/pygoic)
+
 
 ```python
 import asyncio
