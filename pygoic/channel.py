@@ -6,8 +6,8 @@ from asyncio import Future
 from collections import deque
 import random
 import threading
-from typing import Any, Generic, Optional, Tuple, TypeVar, Deque
-from .linked import LinkedList
+from typing import Any, Generic, List, Optional, Tuple, TypeVar, Deque
+from .linked import LinkedList, LinkedNode
 
 
 T = TypeVar('T')
@@ -210,7 +210,8 @@ class Chan(Generic[T]):
                 break
     
 
-    def _hook_getter(self, getter: _ChanGetter[T]):
+    def _hook_getter(self, getter: _ChanGetter[T]) -> Optional[LinkedNode]:
+        node = None
         with self._lock:
             if self._closed:
                 if self._buff:
@@ -220,8 +221,14 @@ class Chan(Generic[T]):
                 else:
                     getter.cancel()
             else:
-                self._getters.append(getter)
+                node = self._getters.append(getter)
                 self._flush()
+            return node
+    
+
+    def _unhook_node(self, node: LinkedNode):
+        with self._lock:
+            node.delete()
 
 
     def __aiter__(self):
@@ -255,7 +262,10 @@ class _NilChan(Chan[T]):
     def recv_nowait(self) -> Tuple[bool, Optional[T], bool]:
         return False, None, False
 
-    def _hook_getter(self, getter: _ChanGetter[T]):
+    def _hook_getter(self, getter: _ChanGetter[T]) -> Optional[LinkedNode]:
+        return None
+    
+    def _unhook_node(self, node: LinkedNode):
         pass
 
 
@@ -278,9 +288,17 @@ async def select(*chans: Chan[Any], default: bool = False) -> Tuple[int, Any, bo
     else:
         fut: asyncio.Future[Tuple[int, Any, bool]] = asyncio.Future()
         lock = threading.Lock()
+        nodes: List[Optional[LinkedNode]] = []
         for i, ch in shuffled:
             getter = _MultiChanGetter(i, fut, lock)
-            ch._hook_getter(getter)
+            node = ch._hook_getter(getter)
             if fut.done():
-                return await fut
-        return await fut
+                break
+            nodes.append(node)
+
+        r = await fut
+        for (i, ch), node in zip(shuffled, nodes):
+            if node is not None:
+                ch._unhook_node(node)
+        return r
+
