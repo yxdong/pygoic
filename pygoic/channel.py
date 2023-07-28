@@ -7,6 +7,7 @@ from collections import deque
 import random
 import threading
 from typing import Any, Generic, Optional, Tuple, TypeVar, Deque
+from .linked import LinkedList
 
 
 T = TypeVar('T')
@@ -22,7 +23,7 @@ class _ChanGetter(ABC, Generic[T]):
         pass
     
     @abstractmethod
-    def close(self) -> bool:
+    def cancel(self) -> bool:
         pass
 
 
@@ -37,7 +38,7 @@ class _SingleChanGetter(_ChanGetter[T]):
         self._future.set_result((item, True))
         return True
 
-    def close(self) -> bool:
+    def cancel(self) -> bool:
         self._future.set_result((None, False))
         return True
     
@@ -75,7 +76,7 @@ class _MultiChanGetter(_ChanGetter[Any]):
         return self._set_result(item, True)
     
     
-    def close(self) -> bool:
+    def cancel(self) -> bool:
         return self._set_result(None, False)
 
 
@@ -84,7 +85,7 @@ class Chan(Generic[T]):
     def __init__(self, buffsize: int = 0):
         self._buffsize = buffsize
         self._buff: Deque[T] = deque()
-        self._getters: Deque[_ChanGetter[T]] = deque()  # TODO: use LinkedList
+        self._getters: LinkedList[_ChanGetter[T]] = LinkedList()
         self._putters: Deque[Tuple[Future[None], T]] = deque()
 
         self._closed = False
@@ -104,7 +105,7 @@ class Chan(Generic[T]):
                     if getter.set(item):
                         self._buff.popleft()
                 else:
-                    getter.close()
+                    getter.cancel()
 
 
     async def send(self, item: T):
@@ -217,7 +218,7 @@ class Chan(Generic[T]):
                     if getter.set(item):
                         self._buff.popleft()
                 else:
-                    getter.close()
+                    getter.cancel()
             else:
                 self._getters.append(getter)
                 self._flush()

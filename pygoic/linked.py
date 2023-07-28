@@ -91,3 +91,7 @@ class LinkedList(Generic[T]):
     def __len__(self):
         return self._count
 
+
+    def __bool__(self):
+        return self._count > 0
+    
