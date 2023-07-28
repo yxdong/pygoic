@@ -8,24 +8,22 @@
 
 ```python
 import asyncio
-from pygoic import go, do, Chan, select
+from pygoic import go, do, Chan, select, After
 
-ch1 = Chan()                             # chan without buff
-ch2 = Chan()
+ch = Chan()
 
 async def foo1():
-    await asyncio.sleep(0.01)
-    await ch1.send('a')                  # wait until received
-    
+    await asyncio.sleep(0.02)
+    await ch.send('a')
+    await ch.send('b')
+    ch.close()
+
 async def foo2():
-    id, x, ok = await select(ch1, ch2)   # gives (0, 'a', True)
-    print(x)
-    await ch2.send('b')
-    await ch2.send('c')
-    ch2.close()
+    id, x, ok = await select(ch, After(0.01))   # gives (1, time(), True)
+    print(id, x, ok)
 
 async def foo3():
-    async for x in ch2:   # loop until chan is closed and empty
+    async for x in ch:    # loop until chan is closed and empty
         print(x)
 
 go(foo1())
