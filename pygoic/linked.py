@@ -7,10 +7,11 @@ T = TypeVar('T')
 
 
 class LinkedNode(Generic[T]):
-    def __init__(self, val: T, next: LinkedNode, prev: LinkedNode):
+    def __init__(self, list: LinkedList[T], val: T, next: LinkedNode[T], prev: LinkedNode[T]):
+        self.list: LinkedList[T] = list
         self.val: T = val
-        self.next: LinkedNode = next
-        self.prev: LinkedNode = prev
+        self.next: LinkedNode[T] = next
+        self.prev: LinkedNode[T] = prev
 
 
     def delete(self):
@@ -20,14 +21,15 @@ class LinkedNode(Generic[T]):
         self.prev.next = self.next
         self.next = None  # type: ignore
         self.prev = None  # type: ignore
+        self.list._count -= 1
 
 
 
 class LinkedList(Generic[T]):
     def __init__(self):
         self._count: int = 0
-        self._head: LinkedNode[T] = LinkedNode(None, None, None)  # type: ignore
-        self._tail: LinkedNode[T] = LinkedNode(None, None, None)  # type: ignore
+        self._head: LinkedNode[T] = LinkedNode(None, None, None, None)  # type: ignore
+        self._tail: LinkedNode[T] = LinkedNode(None, None, None, None)  # type: ignore
         self._head.next = self._tail
         self._head.prev = self._tail
         self._tail.next = self._head
@@ -35,7 +37,7 @@ class LinkedList(Generic[T]):
         
     
     def append(self, x: T) -> LinkedNode[T]:
-        n = LinkedNode(x, self._tail, self._tail.prev)
+        n = LinkedNode(self, x, self._tail, self._tail.prev)
         n.next.prev = n
         n.prev.next = n
         self._count += 1
@@ -43,7 +45,7 @@ class LinkedList(Generic[T]):
     
     
     def appendleft(self, x: T) -> LinkedNode[T]:
-        n = LinkedNode(x, self._head.next, self._head)
+        n = LinkedNode(self, x, self._head.next, self._head)
         n.next.prev = n
         n.prev.next = n
         self._count += 1
