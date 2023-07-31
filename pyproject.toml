@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pygoic"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Go-like asynchronous concurrency library."
 license = "MIT"
 authors = ["Xiaodong Yang <yxdong.cc@outlook.com>"]
