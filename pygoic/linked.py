@@ -7,29 +7,26 @@ T = TypeVar('T')
 
 
 class LinkedNode(Generic[T]):
-    def __init__(self, list: LinkedList[T], val: T, next: LinkedNode[T], prev: LinkedNode[T]):
-        self.list: LinkedList[T] = list
+    def __init__(self, val: T, next: LinkedNode[T], prev: LinkedNode[T]):
         self.val: T = val
         self.next: LinkedNode[T] = next
         self.prev: LinkedNode[T] = prev
 
-
-    def delete(self):
+    def _remove(self) -> bool:
         if self.next is None or self.prev is None:
-            return
+            return False
         self.next.prev = self.prev
         self.prev.next = self.next
         self.next = None  # type: ignore
         self.prev = None  # type: ignore
-        self.list._count -= 1
-
+        return True
 
 
 class LinkedList(Generic[T]):
     def __init__(self):
         self._count: int = 0
-        self._head: LinkedNode[T] = LinkedNode(None, None, None, None)  # type: ignore
-        self._tail: LinkedNode[T] = LinkedNode(None, None, None, None)  # type: ignore
+        self._head: LinkedNode[T] = LinkedNode(None, None, None)  # type: ignore
+        self._tail: LinkedNode[T] = LinkedNode(None, None, None)  # type: ignore
         self._head.next = self._tail
         self._head.prev = self._tail
         self._tail.next = self._head
@@ -37,15 +34,14 @@ class LinkedList(Generic[T]):
         
     
     def append(self, x: T) -> LinkedNode[T]:
-        n = LinkedNode(self, x, self._tail, self._tail.prev)
+        n = LinkedNode(x, self._tail, self._tail.prev)
         n.next.prev = n
         n.prev.next = n
         self._count += 1
         return n
     
-    
     def appendleft(self, x: T) -> LinkedNode[T]:
-        n = LinkedNode(self, x, self._head.next, self._head)
+        n = LinkedNode(x, self._head.next, self._head)
         n.next.prev = n
         n.prev.next = n
         self._count += 1
@@ -87,6 +83,11 @@ class LinkedList(Generic[T]):
             raise IndexError('get node from an empty LinkedList')
         return self._tail.prev
 
+
+    def remove(self, node: LinkedNode[T]):
+        if node._remove():
+            self._count -= 1
+
     
     def __len__(self):
         return self._count
@@ -94,4 +95,17 @@ class LinkedList(Generic[T]):
 
     def __bool__(self):
         return self._count > 0
-    
+
+
+    def __iter__(self):
+        node = self._head.next
+        while node is not self._tail:
+            yield node.val
+
+
+    def iternodes(self):
+        node = self._head.next
+        while node is not self._tail:
+            node = node.next
+            yield node.prev
+

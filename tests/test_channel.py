@@ -2,7 +2,7 @@
 import asyncio
 from typing import List
 from pygoic import go, do
-from pygoic import Chan, nilchan, select
+from pygoic import Chan, nilchan, select, After
 
 
 def test_chan_send_with_buff():
@@ -107,7 +107,7 @@ def test_chan_send_closed():
     assert L == ['f1_0', 'f1_2']
 
 
-def test_select():
+def test_select_basic():
     ch1 = Chan[str]()
     ch2 = Chan[str]()
 
@@ -131,6 +131,57 @@ def test_select():
     go(f2())
     do(f3())
 
+
+def test_select_default():
+    ch1 = Chan[str]()
+    
+    async def f1():
+        return await select(ch1, default=True)
+        
+    id, x, ok = do(f1())
+    assert id == -1
+    assert x == None
+    assert ok == False
+    
+    go(ch1.send(''))
+    id, x, ok = do(f1())
+    assert id == 0
+    assert x == ''
+    assert ok == True
+    
+    ch1.close()
+    id, x, ok = do(f1())
+    assert id == 0
+    assert x == None
+    assert ok == False
+    
+
+def test_select_send_recv():
+    ch1 = Chan[str]()
+    ch2 = Chan[str]()
+    
+    async def f1():
+        return await select(ch1, (ch1, '1'))
+    
+    async def f2():
+        return await select(ch2, (ch2, '2'), After(0.01))
+    
+    go(ch1.send('3'))
+    id, x, ok = do(f1())
+    assert id == 0
+    assert x == '3'
+    assert ok == True
+        
+    go(ch1.recv())
+    id, x, ok = do(f1())
+    assert id == 1
+    assert x == '1'
+    assert ok == True
+
+    id, x, ok = do(f2())
+    assert id == 2
+    assert ok == True
+    
 
 def test_nilchan():
     ch = Chan[str]()
