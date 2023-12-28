@@ -11,7 +11,7 @@ def test_after():
     async def f1():
         ctx, cancel = WithCancel(Background())
         async def anonymous():
-            await asyncio.sleep(0.002)
+            await asyncio.sleep(0.01)
             cancel()
         go(anonymous())
         id, x, ok = await select(After(0.001), ctx.done())
@@ -23,7 +23,7 @@ def test_after():
             await asyncio.sleep(0.001)
             cancel()
         go(anonymous())
-        id, x, ok = await select(After(0.002), ctx.done())
+        id, x, ok = await select(After(0.01), ctx.done())
         assert id == 1
 
     x1 = go(f1())

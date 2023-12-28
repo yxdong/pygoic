@@ -8,27 +8,30 @@
 
 ```python
 import asyncio
-from pygoic import go, do, Chan, select, After
+from pygoic import go, do, Chan, select
 
 ch = Chan()
 
 async def foo1():
     await asyncio.sleep(0.02)
-    await ch.send('a')
-    await ch.send('b')
-    ch.close()
+    x, ok = await ch.recv()
+    print(x, ok)       # output: 'c', True
 
 async def foo2():
-    id, x, ok = await select(ch, After(0.01))   # gives (1, time(), True)
-    print(id, x, ok)
+    await asyncio.sleep(0.01)
+    await ch.send('a')
 
-async def foo3():
-    async for x in ch:    # loop until chan is closed and empty
-        print(x)
+async def foo():
+    go(foo1())
+    go(foo2())
 
-go(foo1())
-go(foo2())                      
-do(foo3())                # block until foo3 done
+    id, x, ok = await select(ch.case_recv(), ch.case_send('b'))
+    print(id, x, ok)   # output: 0, 'a', True
+
+    id, x, ok = await select(ch.case_recv(), ch.case_send('c'))
+    print(id, x, ok)   # output: 1, 'c', True
+
+do(foo())              # block until foo done
 
 ```
 
@@ -124,33 +127,36 @@ ch1 = Chan()
 ch2 = Chan()
 
 async def foo1():
-    await ch1.send('hi')
-    print('foo1: 0')
-    await ch2.send('a')
+    await ch1.send('a')
     await ch2.send('b')
-    ch2.close()
+    await ch2.recv()
 
 async def foo2():
     id, item, ok = await select(ch1, ch2)
     if id == 0:
-        print(f'foo2: 0, ch1')
+        print(f'foo2: 0, read ch1')
     elif id == 1:
-        print(f'foo2: 0, ch2')
+        print(f'foo2: 0, read ch2')
 
-    async for item in ch2:
-        print(f'foo2: 1, {item}')
+    id, item, ok = await select(ch2.case_recv(), ch2.case_send('c'))
+    if id == 0:
+        print(f'foo2: 1, read ch2')
+    elif id == 1:
+        print(f'foo2: 1, write ch2')
 
-    print('foo2: 2')
-    
+    id, item, ok = await select(ch2.case_recv(), ch2.case_send('d'))
+    if id == 0:
+        print(f'foo2: 2, read ch2')
+    elif id == 1:
+        print(f'foo2: 2, write ch2')
+
 go(foo1())
 do(foo2())
 
 ### Output ###
-# foo2: 0, ch1
-# foo1: 0
-# foo2: 1, a
-# foo2: 1, b
-# foo2: 2
+# foo2: 0, read ch1
+# foo2: 1, read ch2
+# foo2: 2, write ch2
 
 ```
 
