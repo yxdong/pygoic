@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
 from collections import deque
-import random
 from threading import Lock
 from typing import Any, Generic, List, Optional, Tuple, TypeVar, Deque, Union
 from .linked import LinkedList, LinkedNode
@@ -131,7 +130,7 @@ class _MutexGroup:
     def getlock(self) -> Lock:
         return self._lock
     
-    def discarded(self) -> bool:
+    def done(self) -> bool:
         return self._future.done()
     
     def set_result(self, id: int, item: Any, ok: bool):
@@ -165,7 +164,7 @@ class _MutexChanItemReader(_ChanItemReader[T]):
         return self._group.getlock()
     
     def discarded(self) -> bool:
-        return self._group.discarded()
+        return self._group.done()
 
 
 class _MutexChanItemWriter(_ChanItemWriter[T]):
@@ -185,7 +184,7 @@ class _MutexChanItemWriter(_ChanItemWriter[T]):
         return self._group.getlock()
     
     def discarded(self) -> bool:
-        return self._group.discarded()
+        return self._group.done()
 
 
 # case send / recv
@@ -218,19 +217,6 @@ class Chan(Generic[T]):
     def close(self):
         with self._lock:
             self._closed = True
-            # close all writers
-            while self._writers:
-                writer = self._writers.popleft()
-                lock = writer.getlock()
-                if lock:
-                    lock.acquire()
-                try:
-                    # close writer
-                    if not writer.discarded():
-                        writer.close()
-                finally:
-                    if lock:
-                        lock.release()
             # close all readers
             while self._readers:
                 reader = self._readers.popleft()
@@ -241,6 +227,19 @@ class Chan(Generic[T]):
                     # close reader
                     if not reader.discarded():
                         reader.close()
+                finally:
+                    if lock:
+                        lock.release()
+            # close all writers
+            while self._writers:
+                writer = self._writers.popleft()
+                lock = writer.getlock()
+                if lock:
+                    lock.acquire()
+                try:
+                    # close writer
+                    if not writer.discarded():
+                        writer.close()
                 finally:
                     if lock:
                         lock.release()
@@ -353,16 +352,12 @@ class Chan(Generic[T]):
 
 
     def _send_with_mutex(self, item: T, group: _MutexGroup, id: int):
-        if group.discarded():
+        if group.done():
             return
         
         with self._lock:
             if self._closed:
-                # close the group as writer
-                with group.getlock():
-                    if not group.discarded():
-                        group.set_exception(ChanClosedError('chan closed'))
-                return
+                raise ChanClosedError('chan closed')
 
             for rnode in self._readers.iternodes():
                 reader = rnode.val
@@ -372,7 +367,7 @@ class Chan(Generic[T]):
                     # one mutex group, just skip
                     continue
                 with _GeminiLock(lock_g, lock_r) if lock_r else lock_g:
-                    if group.discarded():
+                    if group.done():
                         return
                     # delete node anyway
                     rnode.delete()
@@ -385,7 +380,7 @@ class Chan(Generic[T]):
 
             if len(self._buff) < self._buffsize:
                 with group.getlock():
-                    if not group.discarded():
+                    if not group.done():
                         self._buff.append(item)
                         group.set_result(id, item, True)
                 return
@@ -396,14 +391,14 @@ class Chan(Generic[T]):
     
     
     def _recv_with_mutex(self, group: _MutexGroup, id: int):
-        if group.discarded():
+        if group.done():
             return
         
         with self._lock:
             if self._closed:
                 # close the group as reader
                 with group.getlock():
-                    if not group.discarded():
+                    if not group.done():
                         if self._buff:
                             item = self._buff.popleft()
                             group.set_result(id, item, True)
@@ -419,7 +414,7 @@ class Chan(Generic[T]):
                     # one mutex group, just skip
                     continue
                 with _GeminiLock(lock_g, lock_w) if lock_w else lock_g:
-                    if group.discarded():
+                    if group.done():
                         return
                     # delete node anyway
                     wnode.delete()
@@ -436,7 +431,7 @@ class Chan(Generic[T]):
             
             if self._buff:
                 with group.getlock():
-                    if not group.discarded():
+                    if not group.done():
                         item = self._buff.popleft()
                         group.set_result(id, item, True)
                 return
@@ -488,11 +483,9 @@ nilchan = _NilChan()
 
 
 async def select(*ops: Union[Chan[Any], _CaseRecv[Any], _CaseSend[Any]], default: bool = False) -> Tuple[int, Any, bool]:
-    shuffled = list(enumerate(ops))
-    random.shuffle(shuffled)
-
+    closedError: Optional[ChanClosedError] = None
     if default:
-        for id, op in shuffled:
+        for id, op in enumerate(ops):
             if isinstance(op, Chan):
                 success, item, ok = op.recv_nowait()
                 if success:
@@ -502,27 +495,41 @@ async def select(*ops: Union[Chan[Any], _CaseRecv[Any], _CaseSend[Any]], default
                 if success:
                     return id, item, ok
             elif isinstance(op, _CaseSend):
-                success = op.chan.send_nowait(op.item)
-                if success:
-                    return id, op.item, True
+                try:
+                    success = op.chan.send_nowait(op.item)
+                    if success:
+                        return id, op.item, True
+                except ChanClosedError as ex:
+                    closedError = ex
             else:
                 raise TypeError(f'unsupported case type {type(op)} for select')
-            
-        return -1, None, False
+        
+        if closedError:
+            raise closedError
+        else:
+            return -1, None, False
     
     else:
         group = _MutexGroup()
         try:
-            for id, op in shuffled:
+            for id, op in enumerate(ops):
                 if isinstance(op, Chan):
                     op._recv_with_mutex(group, id)
                 elif isinstance(op, _CaseRecv):
                     op.chan._recv_with_mutex(group, id)
                 elif isinstance(op, _CaseSend):
-                    op.chan._send_with_mutex(op.item, group, id)
+                    try:
+                        op.chan._send_with_mutex(op.item, group, id)
+                    except ChanClosedError as ex:
+                        closedError = ex
                 else:
                     raise TypeError(f'unsupported case type {type(op)} for select')
 
+            if closedError and not group.done():
+                with group.getlock():
+                    if not group.done():
+                        group.set_exception(closedError)
+            
             return await group._future
         
         finally:

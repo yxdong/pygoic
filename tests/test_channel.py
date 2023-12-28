@@ -3,6 +3,7 @@ import asyncio
 from typing import List
 from pygoic import go, do
 from pygoic import Chan, nilchan, select, After
+from pygoic import ChanClosedError
 
 
 def test_chan_send_with_buff():
@@ -195,7 +196,7 @@ def test_select_send_recv():
     assert ok == True
 
 
-def test_select_read_write_cross():
+def test_select_read_write_cross_1():
     ch1 = Chan[str]()
     ch2 = Chan[str]()
     
@@ -212,6 +213,118 @@ def test_select_read_write_cross():
     assert x1 == x2
     assert ok1 == ok2
 
+
+def test_select_read_write_cross_2():
+    ch = Chan[str]()
+
+    async def f1():
+        return await select(ch.case_recv(), ch.case_send('1'))
+    
+    async def f2():
+        return await select(ch.case_recv(), ch.case_send('2'))
+    
+    fut = go(f1())
+    id2, x2, ok2 = do(f2())
+    id1, x1, ok1 = do(fut)
+    
+    assert id1 + id2 == 1
+    assert x1 == x2
+    assert ok1 and ok2
+
+
+def test_select_write_closed_avoid():
+    ch1 = Chan[str]()
+    ch2 = Chan[str]()
+    ch3 = Chan[str]()
+    
+    async def f1():
+        ch1.close()
+        id, x, ok = await select(ch1.case_send('1'), ch1.case_recv())
+        assert id == 1
+        assert x == None
+        assert ok == False
+        
+        id, x, ok = await select(ch1.case_recv(), ch1.case_send('1'))
+        assert id == 0
+        assert x == None
+        assert ok == False
+        
+        
+    async def f_close_delay(ch: Chan[str]):
+        await asyncio.sleep(0.01)
+        ch.close()
+
+    async def f2():
+        go(f_close_delay(ch2))
+        id, x, ok = await select(ch2.case_send('2'), ch2.case_recv())
+        assert id == 1
+        assert x == None
+        assert ok == False
+        
+    async def f3():
+        go(f_close_delay(ch3))
+        id, x, ok = await select(ch3.case_recv(), ch3.case_send('3'))
+        assert id == 0
+        assert x == None
+        assert ok == False
+        
+    do(asyncio.gather(
+        go(f1()), 
+        go(f2()), 
+        go(f3()),
+    ))
+
+
+def test_write_closed():
+    ch0 = Chan[str]()
+    ch1 = Chan[str]()
+    ch2 = Chan[str]()
+    ch3 = Chan[str]()
+    
+    async def f1():
+        ch1.close()
+        try:
+            await ch1.send('1')
+        except ChanClosedError:
+            pass
+        else:
+            assert False
+    
+    async def f2():
+        ch2.close()
+        try:
+            await select(ch0.case_recv(), ch2.case_send('2'))
+        except ChanClosedError:
+            pass
+        else:
+            assert False
+            
+        try:
+            await select(ch0.case_recv(), ch2.case_send('2'), default=True)
+        except ChanClosedError:
+            pass
+        else:
+            assert False
+
+    async def f_close_delay(ch: Chan[str]):
+        await asyncio.sleep(0.01)
+        ch.close()
+        
+    async def f3():
+        go(f_close_delay(ch3))
+        try:
+            await select(ch0.case_recv(), ch3.case_send('3'))
+        except ChanClosedError:
+            pass
+        else:
+            assert False
+        
+    do(asyncio.gather(
+        go(f1()), 
+        go(f2()), 
+        go(f3()),
+    ))
+    
 
 def test_nilchan():
     ch = Chan[str]()
