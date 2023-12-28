@@ -2,10 +2,9 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import asyncio
-from asyncio import Future
 from collections import deque
 import random
-import threading
+from threading import Lock
 from typing import Any, Generic, List, Optional, Tuple, TypeVar, Deque, Union
 from .linked import LinkedList, LinkedNode
 
@@ -23,141 +22,228 @@ class ChanClosedError(Exception):
 
 class _ChanItemReader(ABC, Generic[T]):
     @abstractmethod
-    def put(self, item: T, ok: bool) -> bool:
+    def put(self, item: T, ok: bool):
         pass
     
     @abstractmethod
     def close(self):
         pass
 
+    @abstractmethod
+    def getlock(self) -> Optional[Lock]:
+        pass
+    
+    @abstractmethod
+    def discarded(self) -> bool:
+        pass
+    
 
 class _ChanItemWriter(ABC, Generic[T]):
     @abstractmethod
-    def take(self) -> Tuple[Optional[T], bool]:
+    def take(self) -> T:
         pass
     
     @abstractmethod
     def close(self):
         pass
 
+    @abstractmethod
+    def getlock(self) -> Optional[Lock]:
+        pass
+    
+    @abstractmethod
+    def discarded(self) -> bool:
+        pass
+    
 
 # simple chan item reader / writer
 
 class _SimpleChanItemReader(_ChanItemReader[T]):
     def __init__(self):
         self._future: asyncio.Future[Tuple[Optional[T], bool]] = asyncio.Future()
-    
-    def put(self, item: T, ok: bool) -> bool:
+
+    async def read(self) -> Tuple[Optional[T], bool]:
+        return await self._future
+        
+    def put(self, item: T, ok: bool):
         self._future.set_result((item, ok))
-        return True
 
     def close(self):
         self._future.set_result((None, False))
-        
+
+    def getlock(self) -> Optional[Lock]:
+        return None
+    
+    def discarded(self) -> bool:
+        return False
+
 
 class _SimpleChanItemWriter(_ChanItemWriter[T]):
     def __init__(self, item: T):
         self._item = item
         self._future: asyncio.Future[None] = asyncio.Future()
+
+    async def write(self):
+        await self._future
     
-    def take(self) -> Tuple[Optional[T], bool]:
+    def take(self) -> T:
         self._future.set_result(None)
-        return self._item, True
+        return self._item
 
     def close(self):
         self._future.set_exception(ChanClosedError('chan closed'))
 
+    def getlock(self) -> Optional[Lock]:
+        return None
+    
+    def discarded(self) -> bool:
+        return False
+
 
 # mutex reader / writer group
 
+class _GeminiLock:
+    def __init__(self, lock_1: Lock, lock_2: Lock):
+        assert lock_1 is not lock_2
+        if id(lock_1) < id(lock_2):
+            self._lock_1 = lock_1
+            self._lock_2 = lock_2
+        else:
+            self._lock_1 = lock_2
+            self._lock_2 = lock_1
+        
+    def __enter__(self):
+        self._lock_1.acquire()
+        self._lock_2.acquire()
+        return self
+    
+    def __exit__(self, exc_type, exc_value, trace):
+        self._lock_2.release()
+        self._lock_1.release()
+
+
 class _MutexGroup:
     def __init__(self):
+        self._lock = Lock()
         self._future: asyncio.Future[Tuple[int, Any, bool]] = asyncio.Future()
-        self._lock = threading.Lock()
-        self._reader_nodes: List[Tuple[Chan, LinkedNode]] = []
-        self._writer_nodes: List[Tuple[Chan, LinkedNode]] = []
+        self._nodes: List[Tuple[LinkedNode, Chan]] = []
 
-    def set_result(self, id: int, item: Any, ok: bool) -> bool:
-        with self._lock:
-            if self._future.done():
-                return False
-            self._future.set_result((id, item, ok))
-            return True
+    def getlock(self) -> Lock:
+        return self._lock
+    
+    def discarded(self) -> bool:
+        return self._future.done()
+    
+    def set_result(self, id: int, item: Any, ok: bool):
+        self._future.set_result((id, item, ok))
+    
+    def set_exception(self, ex: Exception):
+        self._future.set_exception(ex)
 
-    def set_exception(self, ex: Exception) -> bool:
-        with self._lock:
-            if self._future.done():
-                return False
-            self._future.set_exception(ex)
-            return True
-
-    def is_reader_mutex(self, reader: _ChanItemReader) -> bool:
-        if isinstance(reader, _MutexChanItemReader):
-            return reader._group is self
-        else:
-            return False
-
-    def is_writer_mutex(self, writer: _ChanItemWriter) -> bool:
-        if isinstance(writer, _MutexChanItemWriter):
-            return writer._group is self
-        else:
-            return False
+    def add_node(self, node: LinkedNode, chan: Chan):
+        self._nodes.append((node, chan))
 
     def release(self):
-        for chan, node in self._reader_nodes:
-            chan._remove_reader_node(node)
-        for chan, node in self._writer_nodes:
-            chan._remove_writer_node(node)
+        for node, chan in self._nodes:
+            if node.list is not None:
+                with chan._lock:
+                    node.delete()
 
 
 class _MutexChanItemReader(_ChanItemReader[T]):
     def __init__(self, id: int, group: _MutexGroup):
         self._id = id
         self._group = group
-    
-    def put(self, item: T, ok: bool) -> bool:
-        return self._group.set_result(self._id, item, ok)
 
+    def put(self, item: T, ok: bool):
+        self._group.set_result(self._id, item, ok)
+    
     def close(self):
         self._group.set_result(self._id, None, False)
+
+    def getlock(self) -> Optional[Lock]:
+        return self._group.getlock()
+    
+    def discarded(self) -> bool:
+        return self._group.discarded()
 
 
 class _MutexChanItemWriter(_ChanItemWriter[T]):
     def __init__(self, id: int, item: T, group: _MutexGroup):
-        self._id = id
         self._item = item
+        self._id = id
         self._group = group
-    
-    def take(self) -> Tuple[Optional[T], bool]:
-        if self._group.set_result(self._id, self._item, True):
-            return self._item, True
-        else:
-            return None, False
 
+    def take(self) -> T:
+        self._group.set_result(self._id, self._item, True)
+        return self._item
+    
     def close(self):
         self._group.set_exception(ChanClosedError('chan closed'))
 
+    def getlock(self) -> Optional[Lock]:
+        return self._group.getlock()
+    
+    def discarded(self) -> bool:
+        return self._group.discarded()
 
+
+# case send / recv
+
+class _CaseSend(Generic[T]):
+    def __init__(self, chan: Chan[T], item: T):
+        self.chan = chan
+        self.item = item
+
+
+class _CaseRecv(Generic[T]):
+    def __init__(self, chan: Chan[T]):
+        self.chan = chan
+        
+
+# Chan
+
+_empty_deque = deque(maxlen=0)
 
 class Chan(Generic[T]):
     def __init__(self, buffsize: int = 0):
         self._buffsize = buffsize
-        self._buff: Deque[T] = deque()
+        self._buff: Deque[T] = deque() if self._buffsize > 0 else _empty_deque
         self._readers: LinkedList[_ChanItemReader[T]] = LinkedList()
         self._writers: LinkedList[_ChanItemWriter[T]] = LinkedList()
         self._closed = False
-        self._lock = threading.Lock()
+        self._lock = Lock()
 
 
     def close(self):
         with self._lock:
             self._closed = True
+            # close all writers
             while self._writers:
                 writer = self._writers.popleft()
-                writer.close()
+                lock = writer.getlock()
+                if lock:
+                    lock.acquire()
+                try:
+                    # close writer
+                    if not writer.discarded():
+                        writer.close()
+                finally:
+                    if lock:
+                        lock.release()
+            # close all readers
             while self._readers:
                 reader = self._readers.popleft()
-                reader.close()
+                lock = reader.getlock()
+                if lock:
+                    lock.acquire()
+                try:
+                    # close reader
+                    if not reader.discarded():
+                        reader.close()
+                finally:
+                    if lock:
+                        lock.release()
 
 
     async def send(self, item: T):
@@ -169,7 +255,7 @@ class Chan(Generic[T]):
             writer = _SimpleChanItemWriter(item)
             self._writers.append(writer)
             
-        await writer._future
+        await writer.write()
 
 
     async def recv(self) -> Tuple[Optional[T], bool]:
@@ -181,7 +267,15 @@ class Chan(Generic[T]):
             reader = _SimpleChanItemReader[T]()
             self._readers.append(reader)
             
-        return await reader._future
+        return await reader.read()
+
+
+    def case_send(self, item: T) -> _CaseSend[T]:
+        return _CaseSend(self, item)
+
+
+    def case_recv(self) -> _CaseRecv[T]:
+        return _CaseRecv(self)
 
 
     def send_nowait(self, item: T) -> bool:
@@ -202,10 +296,20 @@ class Chan(Generic[T]):
 
         while self._readers:
             reader = self._readers.popleft()
-            if reader.put(item, True):
-                return True
+            lock = reader.getlock()
+            if lock:
+                lock.acquire()
+            try:
+                if not reader.discarded():
+                    # send
+                    reader.put(item, True)
+                    return True
+            finally:
+                if lock:
+                    lock.release()
 
         if len(self._buff) < self._buffsize:
+            # send
             self._buff.append(item)
             return True
         
@@ -224,98 +328,122 @@ class Chan(Generic[T]):
             
         while self._writers:
             writer = self._writers.popleft()
-            item, ok = writer.take()
-            if ok:
-                if self._buff:
-                    ret = self._buff.popleft()
-                    self._buff.append(item) # type: ignore
-                    return True, ret, True
-                else:
+            lock = writer.getlock()
+            if lock:
+                lock.acquire()
+            try:
+                if not writer.discarded():
+                    # recv
+                    item = writer.take()
+                    if self._buff:
+                        temp = item
+                        item = self._buff.popleft()
+                        self._buff.append(temp)
                     return True, item, True
+            finally:
+                if lock:
+                    lock.release()
         
         if self._buff:
+            # recv
             item = self._buff.popleft()
             return True, item, True
             
         return False, None, False
 
 
-    def _send_with_mutex(self, item: T, id: int, group: _MutexGroup):
-        with self._lock, group._lock:
-            if group._future.done():
-                return
-            
+    def _send_with_mutex(self, item: T, group: _MutexGroup, id: int):
+        if group.discarded():
+            return
+        
+        with self._lock:
             if self._closed:
-                group._future.set_exception(ChanClosedError('chan closed'))
+                # close the group as writer
+                with group.getlock():
+                    if not group.discarded():
+                        group.set_exception(ChanClosedError('chan closed'))
                 return
 
             for rnode in self._readers.iternodes():
                 reader = rnode.val
-                if group.is_reader_mutex(reader):
+                lock_g = group.getlock()
+                lock_r = reader.getlock()
+                if lock_g is lock_r:
+                    # one mutex group, just skip
                     continue
-                self._readers.remove(rnode)
-                if reader.put(item, True):
-                    group._future.set_result((id, item, True))
+                with _GeminiLock(lock_g, lock_r) if lock_r else lock_g:
+                    if group.discarded():
+                        return
+                    # delete node anyway
+                    rnode.delete()
+                    if reader.discarded():
+                        continue
+                    # both ready
+                    reader.put(item, True)
+                    group.set_result(id, item, True)
                     return
 
             if len(self._buff) < self._buffsize:
-                self._buff.append(item)
-                group._future.set_result((id, item, True))
-                return 
+                with group.getlock():
+                    if not group.discarded():
+                        self._buff.append(item)
+                        group.set_result(id, item, True)
+                return
             
             writer = _MutexChanItemWriter(id, item, group)
             node = self._writers.append(writer)
-            group._writer_nodes.append((self, node))
+            group.add_node(node, self)
     
     
-    def _recv_with_mutex(self, id: int, group: _MutexGroup):
-        with self._lock, group._lock:
-            if group._future.done():
-                return
-            
+    def _recv_with_mutex(self, group: _MutexGroup, id: int):
+        if group.discarded():
+            return
+        
+        with self._lock:
             if self._closed:
-                if self._buff:
-                    item = self._buff.popleft()
-                    group._future.set_result((id, item, True))
-                    return
-                else:
-                    group._future.set_result((id, None, False))
-                    return
+                # close the group as reader
+                with group.getlock():
+                    if not group.discarded():
+                        if self._buff:
+                            item = self._buff.popleft()
+                            group.set_result(id, item, True)
+                        else:
+                            group.set_result(id, None, False)
+                return
             
             for wnode in self._writers.iternodes():
                 writer = wnode.val
-                if group.is_writer_mutex(writer):
+                lock_g = group.getlock()
+                lock_w = writer.getlock()
+                if lock_g is lock_w:
+                    # one mutex group, just skip
                     continue
-                self._writers.remove(wnode)
-                item, ok = writer.take()
-                if ok:
+                with _GeminiLock(lock_g, lock_w) if lock_w else lock_g:
+                    if group.discarded():
+                        return
+                    # delete node anyway
+                    wnode.delete()
+                    if writer.discarded():
+                        continue
+                    # both ready
+                    item = writer.take()
                     if self._buff:
-                        ret = self._buff.popleft()
-                        self._buff.append(item) # type: ignore
-                        group._future.set_result((id, ret, True))
-                        return
-                    else:
-                        group._future.set_result((id, item, True))
-                        return
+                        temp = item
+                        item = self._buff.popleft()
+                        self._buff.append(temp)
+                    group.set_result(id, item, True)
+                    return
             
             if self._buff:
-                item = self._buff.popleft()
-                group._future.set_result((id, item, True))
+                with group.getlock():
+                    if not group.discarded():
+                        item = self._buff.popleft()
+                        group.set_result(id, item, True)
                 return
             
             reader = _MutexChanItemReader(id, group)
             node = self._readers.append(reader)
-            group._reader_nodes.append((self, node))
-
-
-    def _remove_writer_node(self, node: LinkedNode):
-        with self._lock:
-            self._writers.remove(node)
-    
-    
-    def _remove_reader_node(self, node: LinkedNode):
-        with self._lock:
-            self._readers.remove(node)    
+            group.add_node(node, self)
 
 
     def __aiter__(self):
@@ -349,50 +477,53 @@ class _NilChan(Chan[T]):
     def recv_nowait(self) -> Tuple[bool, Optional[T], bool]:
         return False, None, False
 
-    def _send_with_mutex(self, item: T, id: int, group: _MutexGroup):
+    def _send_with_mutex(self, item: T, group: _MutexGroup, id: int):
         return
     
-    def _recv_with_mutex(self, id: int, group: _MutexGroup):
-        return
-    
-    def _remove_writer_node(self, node: LinkedNode):
-        return
-
-    def _remove_reader_node(self, node: LinkedNode):
+    def _recv_with_mutex(self, group: _MutexGroup, id: int):
         return
 
 
 nilchan = _NilChan()
 
 
-async def select(*ops: Union[Chan[Any], Tuple[Chan[Any], Any]], default: bool = False) -> Tuple[int, Any, bool]:
+async def select(*ops: Union[Chan[Any], _CaseRecv[Any], _CaseSend[Any]], default: bool = False) -> Tuple[int, Any, bool]:
     shuffled = list(enumerate(ops))
     random.shuffle(shuffled)
 
     if default:
-        for i, op in shuffled:
+        for id, op in shuffled:
             if isinstance(op, Chan):
                 success, item, ok = op.recv_nowait()
                 if success:
-                    return i, item, ok
-            else:
-                chan, item = op
-                success = chan.send_nowait(item)
+                    return id, item, ok
+            elif isinstance(op, _CaseRecv):
+                success, item, ok = op.chan.recv_nowait()
                 if success:
-                    return i, item, True
-                
+                    return id, item, ok
+            elif isinstance(op, _CaseSend):
+                success = op.chan.send_nowait(op.item)
+                if success:
+                    return id, op.item, True
+            else:
+                raise TypeError(f'unsupported case type {type(op)} for select')
+            
         return -1, None, False
-
+    
     else:
         group = _MutexGroup()
         try:
-            for i, op in shuffled:
+            for id, op in shuffled:
                 if isinstance(op, Chan):
-                    op._recv_with_mutex(i, group)
+                    op._recv_with_mutex(group, id)
+                elif isinstance(op, _CaseRecv):
+                    op.chan._recv_with_mutex(group, id)
+                elif isinstance(op, _CaseSend):
+                    op.chan._send_with_mutex(op.item, group, id)
                 else:
-                    chan, item = op
-                    chan._send_with_mutex(item, i, group)
-                
+                    raise TypeError(f'unsupported case type {type(op)} for select')
+
             return await group._future
+        
         finally:
             group.release()

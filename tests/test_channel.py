@@ -161,17 +161,29 @@ def test_select_send_recv():
     ch2 = Chan[str]()
     
     async def f1():
-        return await select(ch1, (ch1, '1'))
+        return await select(ch1, ch1.case_send('1'))
     
     async def f2():
-        return await select(ch2, (ch2, '2'), After(0.01))
+        return await select(ch2, ch2.case_send('2'), After(0.01))
     
     go(ch1.send('3'))
     id, x, ok = do(f1())
     assert id == 0
     assert x == '3'
     assert ok == True
-        
+
+    go(f1())
+    x, ok = do(ch1.recv())
+    assert x == '1'
+    assert ok
+
+    fut = go(f1())
+    do(ch1.send('4'))
+    id, x, ok = do(fut)
+    assert id == 0
+    assert x == '4'
+    assert ok == True
+
     go(ch1.recv())
     id, x, ok = do(f1())
     assert id == 1
@@ -181,7 +193,25 @@ def test_select_send_recv():
     id, x, ok = do(f2())
     assert id == 2
     assert ok == True
+
+
+def test_select_read_write_cross():
+    ch1 = Chan[str]()
+    ch2 = Chan[str]()
     
+    async def f1():
+        return await select(ch1.case_recv(), ch2.case_recv())
+    
+    async def f2():
+        return await select(ch1.case_send('1'), ch2.case_send('2'))
+    
+    fut = go(f1())
+    id2, x2, ok2 = do(f2())
+    id1, x1, ok1 = do(fut)
+    assert id1 == id2
+    assert x1 == x2
+    assert ok1 == ok2
+
 
 def test_nilchan():
     ch = Chan[str]()
